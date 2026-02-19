@@ -119,6 +119,7 @@ class AntigravityClient:
             result = self._antigravity_auth.call_api(
                 prompt=prompt,
                 system_prompt=system_prompt,
+                model=self.config.model  # 설정된 모델 명시적 전달
             )
             return result
         except Exception as e:
