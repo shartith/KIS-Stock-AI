@@ -22,6 +22,8 @@ from config import (
     MARKET_INFO, YAHOO_SUFFIX, KOSDAQ_CODES,
     HARD_STOP_LOSS_PERCENT, DEFAULT_FX_RATES
 )
+from data_collector import StockDataCollector
+from antigravity_client import AntigravityClient
 from local_llm import LocalLLMClient
 from ta_utils import analyze_candles
 from scanner_engine_helper import ScannerHelper

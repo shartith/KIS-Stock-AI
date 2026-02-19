@@ -12,12 +12,14 @@ import json
 import asyncio
 from datetime import datetime
 from collections import deque
+from concurrent.futures import ThreadPoolExecutor
 from pydantic import BaseModel
 from typing import Optional
 
 # 상위 경로 추가
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ai.data_collector import StockDataCollector
+from ai.database import DatabaseManager
 from ai.config import (MARKET_INFO, YAHOO_SUFFIX, KOSDAQ_CODES)
 
 app = FastAPI(title="KIS Stock AI Dashboard")
@@ -66,8 +68,16 @@ def ai_log(level: str, message: str):
     for q in dead:
         _ai_log_subscribers.remove(q)
 
-# 국가별 종목 리스트 맵 (동적 로드)
+# 국가별 종목 리스트 맵 (MARKET_INFO 기반)
+def load_country_stocks():
+    """MARKET_INFO에서 지원 국가 목록을 생성"""
+    return {code: info for code, info in MARKET_INFO.items()}
+
 COUNTRY_STOCKS = load_country_stocks()
+
+# 학습 상태 글로벌 변수
+_training_process = None
+_training_status = {"status": "idle", "message": "", "last_run": None}
 
 
 # ==========================
