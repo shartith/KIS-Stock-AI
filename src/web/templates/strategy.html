@@ -1,0 +1,454 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="h-full flex flex-col space-y-3 overflow-auto" style="height: calc(100vh - 120px)">
+
+    <!-- Header -->
+    <div class="flex items-center justify-between flex-shrink-0">
+        <div class="flex items-center space-x-3">
+            <h1 class="text-lg font-bold text-white">📋 AI Daily Report</h1>
+            <span id="report-time" class="text-xs text-gray-500">업데이트 대기 중</span>
+        </div>
+        <button onclick="loadReport()"
+            class="px-3 py-1 text-xs bg-gray-700 hover:bg-gray-600 text-white rounded transition">
+            🔄 새로고침
+        </button>
+    </div>
+
+    <!-- Empty State -->
+    <div id="empty-state" class="flex-1 flex items-center justify-center">
+        <div class="text-center">
+            <div class="text-4xl mb-3">🌙</div>
+            <p class="text-gray-400 text-sm">Off-Market 분석 데이터가 아직 없습니다</p>
+            <p class="text-gray-600 text-xs mt-1">장 마감 후 자동으로 6개 분석이 실행됩니다</p>
+        </div>
+    </div>
+
+    <!-- Report Content (hidden until data loaded) -->
+    <div id="report-content" class="hidden space-y-3 flex-1">
+
+        <!-- KPI Cards -->
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3 flex-shrink-0">
+            <!-- AI Accuracy -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-xs text-gray-500 mb-1">🎯 AI 정확도</div>
+                <div id="kpi-accuracy" class="text-2xl font-bold text-green-400">--%</div>
+                <div id="kpi-accuracy-sub" class="text-xs text-gray-500 mt-1">-- 적중</div>
+            </div>
+            <!-- Market Sentiment -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-xs text-gray-500 mb-1">📈 시장 심리</div>
+                <div id="kpi-sentiment" class="text-2xl font-bold text-gray-400">--</div>
+                <div id="kpi-sentiment-sub" class="text-xs text-gray-500 mt-1">분석 대기</div>
+            </div>
+            <!-- Risk Level -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-xs text-gray-500 mb-1">⚠️ 리스크</div>
+                <div id="kpi-risk" class="text-2xl font-bold text-yellow-400">--</div>
+                <div id="kpi-risk-sub" class="text-xs text-gray-500 mt-1">글로벌 분석 기준</div>
+            </div>
+            <!-- Data Stats -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <div class="text-xs text-gray-500 mb-1">📊 데이터 현황</div>
+                <div id="kpi-data" class="text-sm font-bold text-blue-400 mt-1">--</div>
+                <div id="kpi-data-sub" class="text-xs text-gray-500 mt-1">캐시 상태</div>
+            </div>
+        </div>
+
+        <!-- Global Market + Pre-Market Picks -->
+        <div class="grid grid-cols-1 md:grid-cols-5 gap-3">
+            <!-- Global Market (3 cols) -->
+            <div class="md:col-span-3 bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 class="text-xs font-semibold text-gray-500 uppercase mb-3">🌐 글로벌 시장 현황</h2>
+                <div id="global-indices" class="space-y-1.5 mb-3">
+                    <div class="text-xs text-gray-600">로딩 중...</div>
+                </div>
+                <div id="global-ai-summary" class="bg-gray-900/50 rounded p-3 border border-gray-700/50">
+                    <div class="text-xs text-gray-500 mb-1">🤖 AI 전망</div>
+                    <div id="ai-outlook" class="text-xs text-gray-300 leading-relaxed">분석 대기</div>
+                    <div id="ai-recommended" class="mt-2 text-xs text-gray-500"></div>
+                    <div id="ai-sectors" class="mt-1 text-xs text-gray-500"></div>
+                </div>
+            </div>
+            <!-- Pre-Market Picks (2 cols) -->
+            <div class="md:col-span-2 bg-gray-800 rounded-lg p-4 border border-purple-900/30">
+                <h2 class="text-xs font-semibold text-purple-400 uppercase mb-3">⭐ 프리마켓 추천</h2>
+                <div id="premarket-picks" class="space-y-2">
+                    <div class="text-xs text-gray-600">추천 대기</div>
+                </div>
+            </div>
+        </div>
+
+        <!-- Technical Signals + Market Movers -->
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-3">
+            <!-- Technical Signals -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 class="text-xs font-semibold text-gray-500 uppercase mb-3">🔬 기술적 신호 요약</h2>
+                <div id="ta-signals" class="grid grid-cols-5 gap-2">
+                    <div class="text-xs text-gray-600 col-span-5">데이터 없음</div>
+                </div>
+            </div>
+            <!-- Market Movers -->
+            <div class="bg-gray-800 rounded-lg p-4 border border-gray-700">
+                <h2 class="text-xs font-semibold text-gray-500 uppercase mb-3">📰 주요 급등락 종목</h2>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <div class="text-xs text-green-400 font-semibold mb-2">🟢 급등</div>
+                        <div id="movers-up" class="space-y-1">
+                            <div class="text-xs text-gray-600">--</div>
+                        </div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-red-400 font-semibold mb-2">🔴 급락</div>
+                        <div id="movers-down" class="space-y-1">
+                            <div class="text-xs text-gray-600">--</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- AI Accuracy Details -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-gray-700 flex-shrink-0">
+            <h2 class="text-xs font-semibold text-gray-500 uppercase mb-3">🎯 AI 판단 정확도 상세</h2>
+            <div id="accuracy-details" class="flex flex-wrap gap-2">
+                <div class="text-xs text-gray-600">거래 기록 없음</div>
+            </div>
+        </div>
+    </div>
+
+    <!-- ═══════════════════════════════════════ -->
+    <!-- Strategy Management Section (always shown) -->
+    <!-- ═══════════════════════════════════════ -->
+    <div class="space-y-3 mt-2">
+
+        <!-- Active Strategies -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-blue-900/30">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-xs font-semibold text-blue-400 uppercase">🧠 활성 전략</h2>
+                <span id="strategy-count" class="text-[10px] text-gray-500">0개</span>
+            </div>
+            <div id="strategy-list" class="space-y-2">
+                <div class="text-xs text-gray-600 text-center py-4">
+                    아직 학습된 전략이 없습니다<br>
+                    <span class="text-gray-700">Off-Market 분석 완료 후 자동 생성됩니다</span>
+                </div>
+            </div>
+        </div>
+
+        <!-- Learned Patterns -->
+        <div class="bg-gray-800 rounded-lg p-4 border border-green-900/30">
+            <div class="flex items-center justify-between mb-3">
+                <h2 class="text-xs font-semibold text-green-400 uppercase">📈 학습된 매매 패턴</h2>
+                <span id="pattern-count" class="text-[10px] text-gray-500">0건</span>
+            </div>
+            <div id="pattern-list" class="space-y-2">
+                <div class="text-xs text-gray-600 text-center py-4">
+                    매매 기록이 쌓이면 자동으로 패턴이 학습됩니다
+                </div>
+            </div>
+        </div>
+    </div>
+
+</div>
+
+<script>
+    const MARKET_FLAGS = { KR: '🇰🇷', JP: '🇯🇵', CN: '🇨🇳', HK: '🇭🇰', US: '🇺🇸' };
+    const INDEX_NAMES = {
+        '^GSPC': 'S&P 500', '^DJI': 'Dow Jones', '^IXIC': 'NASDAQ',
+        '^N225': 'Nikkei 225', '^KS11': 'KOSPI', '^HSI': 'Hang Seng', '000001.SS': 'Shanghai'
+    };
+    const INDEX_FLAGS = {
+        '^GSPC': '🇺🇸', '^DJI': '🇺🇸', '^IXIC': '🇺🇸',
+        '^N225': '🇯🇵', '^KS11': '🇰🇷', '^HSI': '🇭🇰', '000001.SS': '🇨🇳'
+    };
+    const TYPE_LABELS = { market: '시장전략', sector: '섹터', pattern: '패턴', custom: '사용자' };
+
+    let refreshTimer = null;
+
+    async function loadReport() {
+        try {
+            const [reportRes, stratRes] = await Promise.all([
+                fetch('/api/offmarket/status'),
+                fetch('/api/strategies')
+            ]);
+            const reportData = await reportRes.json();
+            const stratData = await stratRes.json();
+            renderReport(reportData);
+            renderStrategies(stratData.strategies || []);
+            renderPatterns(stratData.patterns || []);
+        } catch (e) {
+            console.error('Report load error:', e);
+        }
+    }
+
+    function renderReport(d) {
+        const hasData = d.candle_cache_count > 0 || d.ta_cache_count > 0 || d.news_count > 0
+            || (d.ai_stats && d.ai_stats.total > 0) || (d.premarket_picks && d.premarket_picks.length > 0);
+
+        document.getElementById('empty-state').classList.toggle('hidden', hasData);
+        document.getElementById('report-content').classList.toggle('hidden', !hasData);
+        if (!hasData) return;
+
+        // Update time
+        if (d.state && d.state.last_run) {
+            document.getElementById('report-time').textContent = '마지막 업데이트: ' + d.state.last_run;
+        }
+
+        // KPI: Accuracy
+        if (d.ai_stats && d.ai_stats.total > 0) {
+            const acc = d.ai_stats.accuracy || 0;
+            const el = document.getElementById('kpi-accuracy');
+            el.textContent = acc.toFixed(1) + '%';
+            el.className = 'text-2xl font-bold ' + (acc >= 60 ? 'text-green-400' : acc >= 40 ? 'text-yellow-400' : 'text-red-400');
+            document.getElementById('kpi-accuracy-sub').textContent =
+                `${d.ai_stats.correct || 0}/${d.ai_stats.total} 적중`;
+        }
+
+        // KPI: Sentiment
+        if (d.global_analysis && d.global_analysis.ai_analysis) {
+            const ai = d.global_analysis.ai_analysis;
+            const sentEl = document.getElementById('kpi-sentiment');
+            const risk = (ai.risk_level || 'unknown').toUpperCase();
+            const summary = (ai.summary || '').toLowerCase();
+            let sentiment = 'NEUTRAL', sentColor = 'text-gray-400';
+            if (summary.includes('강세') || summary.includes('상승') || summary.includes('긍정') || summary.includes('bullish')) {
+                sentiment = 'BULLISH 📈'; sentColor = 'text-green-400';
+            } else if (summary.includes('약세') || summary.includes('하락') || summary.includes('부정') || summary.includes('bearish')) {
+                sentiment = 'BEARISH 📉'; sentColor = 'text-red-400';
+            }
+            sentEl.textContent = sentiment;
+            sentEl.className = 'text-2xl font-bold ' + sentColor;
+            document.getElementById('kpi-sentiment-sub').textContent = 'AI 글로벌 분석 기반';
+
+            const riskEl = document.getElementById('kpi-risk');
+            riskEl.textContent = risk;
+            riskEl.className = 'text-2xl font-bold ' +
+                (risk === 'LOW' ? 'text-green-400' : risk === 'HIGH' ? 'text-red-400' : 'text-yellow-400');
+        }
+
+        // KPI: Data stats
+        document.getElementById('kpi-data').textContent =
+            `캔들 ${d.candle_cache_count} | TA ${d.ta_cache_count} | 뉴스 ${d.news_count}`;
+
+        // Global Indices
+        if (d.global_analysis && d.global_analysis.indices) {
+            const idx = d.global_analysis.indices;
+            let html = '';
+            for (const [sym, data] of Object.entries(idx)) {
+                const name = INDEX_NAMES[sym] || sym;
+                const flag = INDEX_FLAGS[sym] || '🏳️';
+                const pct = data.change_pct || 0;
+                const price = data.price || 0;
+                const color = pct > 0 ? 'text-green-400' : pct < 0 ? 'text-red-400' : 'text-gray-400';
+                const sign = pct > 0 ? '+' : '';
+                html += `<div class="flex items-center justify-between py-1 border-b border-gray-700/50">
+                <span class="text-xs text-gray-300">${flag} ${name}</span>
+                <div class="flex items-center space-x-3">
+                    <span class="text-xs text-gray-400">${price.toLocaleString(undefined, { maximumFractionDigits: 0 })}</span>
+                    <span class="text-xs font-medium ${color} w-16 text-right">${sign}${pct.toFixed(2)}%</span>
+                </div>
+            </div>`;
+            }
+            document.getElementById('global-indices').innerHTML = html || '<div class="text-xs text-gray-600">지수 데이터 없음</div>';
+
+            if (d.global_analysis.ai_analysis) {
+                const ai = d.global_analysis.ai_analysis;
+                document.getElementById('ai-outlook').textContent = ai.summary || '분석 없음';
+                if (ai.recommended_markets && ai.recommended_markets.length > 0) {
+                    document.getElementById('ai-recommended').innerHTML =
+                        '추천 시장: ' + ai.recommended_markets.map(m => `<span class="text-blue-400">${MARKET_FLAGS[m] || ''} ${m}</span>`).join(', ');
+                }
+                if (ai.sector_outlook) {
+                    const sectors = Object.entries(ai.sector_outlook).map(([k, v]) => {
+                        const c = v === 'bullish' ? 'text-green-400' : v === 'bearish' ? 'text-red-400' : 'text-gray-400';
+                        return `<span class="${c}">${k}: ${v}</span>`;
+                    }).join(' · ');
+                    document.getElementById('ai-sectors').innerHTML = '섹터: ' + sectors;
+                }
+            }
+        }
+
+        // Pre-Market Picks
+        if (d.premarket_picks && d.premarket_picks.length > 0) {
+            let html = '';
+            d.premarket_picks.forEach((p, i) => {
+                const flag = MARKET_FLAGS[p.market] || '🏳️';
+                html += `<div class="bg-gray-900/50 rounded p-2.5 border border-gray-700/50">
+                <div class="flex items-center justify-between mb-1">
+                    <span class="text-xs font-semibold text-white">${i + 1}. ${flag} ${p.name || p.symbol}</span>
+                    <span class="text-[10px] text-gray-500">${p.symbol}</span>
+                </div>
+                ${p.entry_price ? `<div class="text-[10px] text-gray-400">진입: ${p.entry_price} · 목표: ${p.target_price || '--'}</div>` : ''}
+                ${p.strategy ? `<div class="text-[10px] text-purple-300 mt-0.5">${p.strategy}</div>` : ''}
+            </div>`;
+            });
+            document.getElementById('premarket-picks').innerHTML = html;
+        }
+
+        // Technical Signals
+        if (d.ta_cache_count > 0) {
+            const markets = ['KR', 'JP', 'CN', 'HK', 'US'];
+            const flags = { KR: '🇰🇷 한국', JP: '🇯🇵 일본', CN: '🇨🇳 중국', HK: '🇭🇰 홍콩', US: '🇺🇸 미국' };
+            let html = '';
+            markets.forEach(m => {
+                html += `<div class="bg-gray-900/50 rounded p-2.5 border border-gray-700/50 text-center">
+                <div class="text-xs font-semibold text-gray-300 mb-1">${flags[m]}</div>
+                <div class="text-[10px] text-gray-500">TA 분석 완료</div>
+            </div>`;
+            });
+            document.getElementById('ta-signals').innerHTML = html;
+        }
+
+        // Market Movers
+        if (d.global_analysis && d.global_analysis.indices) {
+            const entries = Object.entries(d.global_analysis.indices);
+            const sorted = entries.sort((a, b) => (b[1].change_pct || 0) - (a[1].change_pct || 0));
+            const gainers = sorted.filter(e => (e[1].change_pct || 0) > 0);
+            const losers = sorted.filter(e => (e[1].change_pct || 0) < 0).reverse();
+
+            document.getElementById('movers-up').innerHTML = gainers.length ? gainers.slice(0, 5).map(([sym, data]) => {
+                const name = INDEX_NAMES[sym] || sym;
+                return `<div class="flex items-center justify-between">
+                <span class="text-xs text-gray-300">${name}</span>
+                <span class="text-xs font-medium text-green-400">+${(data.change_pct || 0).toFixed(2)}%</span>
+            </div>`;
+            }).join('') : '<div class="text-xs text-gray-600">--</div>';
+
+            document.getElementById('movers-down').innerHTML = losers.length ? losers.slice(0, 5).map(([sym, data]) => {
+                const name = INDEX_NAMES[sym] || sym;
+                return `<div class="flex items-center justify-between">
+                <span class="text-xs text-gray-300">${name}</span>
+                <span class="text-xs font-medium text-red-400">${(data.change_pct || 0).toFixed(2)}%</span>
+            </div>`;
+            }).join('') : '<div class="text-xs text-gray-600">--</div>';
+        }
+
+        // Accuracy Details
+        if (d.ai_stats && d.ai_stats.details && d.ai_stats.details.length > 0) {
+            let html = '';
+            d.ai_stats.details.forEach(t => {
+                const icon = t.verdict === 'correct' ? '✅' : t.verdict === 'stop_loss' || t.verdict === 'loss' ? '❌' : '⚪';
+                const pnl = t.pnl_pct || 0;
+                const color = pnl > 0 ? 'text-green-400' : pnl < -1 ? 'text-red-400' : 'text-gray-400';
+                const sign = pnl > 0 ? '+' : '';
+                html += `<div class="bg-gray-900/50 rounded px-2.5 py-1.5 border border-gray-700/50 flex items-center space-x-1.5">
+                <span class="text-xs">${icon}</span>
+                <span class="text-xs text-gray-300">${t.symbol || '??'}</span>
+                <span class="text-xs font-medium ${color}">${sign}${pnl.toFixed(1)}%</span>
+            </div>`;
+            });
+            document.getElementById('accuracy-details').innerHTML = html;
+        }
+    }
+
+    // ═══════════════════════════════════════
+    // Strategy Management
+    // ═══════════════════════════════════════
+    function renderStrategies(strategies) {
+        document.getElementById('strategy-count').textContent = `${strategies.length}개`;
+
+        if (!strategies.length) {
+            document.getElementById('strategy-list').innerHTML =
+                `<div class="text-xs text-gray-600 text-center py-4">
+                아직 학습된 전략이 없습니다<br>
+                <span class="text-gray-700">Off-Market 분석 완료 후 자동 생성됩니다</span>
+            </div>`;
+            return;
+        }
+
+        let html = '';
+        strategies.forEach(s => {
+            const active = s.active !== false;
+            const typeLabel = TYPE_LABELS[s.type] || s.type;
+            const flag = MARKET_FLAGS[s.market] || '🌐';
+            const total = (s.success_count || 0) + (s.fail_count || 0);
+            const winRate = total > 0 ? `승률 ${((s.success_count / total) * 100).toFixed(0)}%` : '';
+            const stats = total > 0 ? `성공 ${s.success_count}회 / 실패 ${s.fail_count}회 ${winRate ? `(${winRate})` : ''}` : '';
+
+            html += `<div class="bg-gray-900/50 rounded p-3 border ${active ? 'border-blue-800/40' : 'border-gray-700/30 opacity-50'}">
+            <div class="flex items-center justify-between mb-1">
+                <div class="flex items-center space-x-2">
+                    <button onclick="toggleStrategy('${s.id}', ${!active})"
+                        class="w-9 h-5 rounded-full relative transition-colors ${active ? 'bg-blue-600' : 'bg-gray-600'}"
+                        title="${active ? '비활성화' : '활성화'}">
+                        <span class="absolute top-0.5 ${active ? 'right-0.5' : 'left-0.5'} w-4 h-4 bg-white rounded-full transition-all shadow"></span>
+                    </button>
+                    <span class="text-xs font-semibold text-white">${flag} ${s.name || '전략'}</span>
+                    <span class="text-[10px] px-1.5 py-0.5 rounded bg-gray-700 text-gray-400">${typeLabel}</span>
+                </div>
+                <button onclick="deleteStrategy('${s.id}')" class="text-gray-600 hover:text-red-400 transition text-xs" title="삭제">🗑️</button>
+            </div>
+            <div class="text-[10px] text-gray-400 ml-11">${s.description || ''}</div>
+            ${s.conditions ? `<div class="text-[10px] text-gray-500 ml-11 mt-0.5">조건: ${s.conditions}</div>` : ''}
+            ${stats ? `<div class="text-[10px] text-gray-500 ml-11 mt-0.5">${stats}</div>` : ''}
+        </div>`;
+        });
+        document.getElementById('strategy-list').innerHTML = html;
+    }
+
+    function renderPatterns(patterns) {
+        document.getElementById('pattern-count').textContent = `${patterns.length}건`;
+
+        if (!patterns.length) {
+            document.getElementById('pattern-list').innerHTML =
+                `<div class="text-xs text-gray-600 text-center py-4">매매 기록이 쌓이면 자동으로 패턴이 학습됩니다</div>`;
+            return;
+        }
+
+        let html = '';
+        patterns.slice().reverse().forEach(p => {
+            const icon = p.result === 'success' ? '✅' : p.result === 'fail' ? '❌' : '⏳';
+            const flag = MARKET_FLAGS[p.market] || '🏳️';
+            const pnl = p.pnl_pct || 0;
+            const pnlColor = pnl > 0 ? 'text-green-400' : pnl < 0 ? 'text-red-400' : 'text-gray-400';
+            const pnlSign = pnl > 0 ? '+' : '';
+
+            // Candle trend arrows
+            const snap = p.candle_snapshot || {};
+            const before = snap.before_5d || [];
+            const arrows = before.slice(-5).map(c =>
+                c.close >= c.open ? '<span class="text-green-400">↑</span>' : '<span class="text-red-400">↓</span>'
+            ).join('');
+
+            const ind = (snap.indicators || {});
+            const rsi = ind.rsi ? `RSI:${ind.rsi}` : '';
+            const ma = ind.ma5_vs_ma20 === 'cross_up' ? '골든크로스' :
+                ind.ma5_vs_ma20 === 'cross_down' ? '데드크로스' :
+                    ind.ma5_vs_ma20 === 'above' ? 'MA▲' : ind.ma5_vs_ma20 === 'below' ? 'MA▼' : '';
+
+            html += `<div class="bg-gray-900/50 rounded p-2.5 border border-gray-700/50">
+            <div class="flex items-center justify-between mb-0.5">
+                <span class="text-xs font-semibold text-white">${icon} ${flag} ${p.name || p.symbol}</span>
+                <span class="text-xs font-medium ${pnlColor}">${p.result === 'pending' ? '진행중' : `${pnlSign}${pnl.toFixed(1)}%`}</span>
+            </div>
+            <div class="flex items-center justify-between">
+                <span class="text-[10px] text-purple-300">${p.pattern_label || '-'}</span>
+                <span class="text-[10px] text-gray-500">${[rsi, ma].filter(Boolean).join(' · ')}</span>
+            </div>
+            ${arrows ? `<div class="text-[10px] text-gray-500 mt-0.5">진입 전: ${arrows}</div>` : ''}
+        </div>`;
+        });
+        document.getElementById('pattern-list').innerHTML = html;
+    }
+
+    async function toggleStrategy(id, active) {
+        try {
+            await fetch(`/api/strategies/${id}/toggle?active=${active}`, { method: 'PUT' });
+            loadReport();
+        } catch (e) { console.error('Toggle error:', e); }
+    }
+
+    async function deleteStrategy(id) {
+        if (!confirm('이 전략을 삭제하시겠습니까?')) return;
+        try {
+            await fetch(`/api/strategies/${id}`, { method: 'DELETE' });
+            loadReport();
+        } catch (e) { console.error('Delete error:', e); }
+    }
+
+    // Auto-refresh
+    loadReport();
+    refreshTimer = setInterval(loadReport, 60000);
+</script>
+{% endblock %}

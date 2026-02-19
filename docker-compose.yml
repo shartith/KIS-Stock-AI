@@ -1,0 +1,42 @@
+version: '3.8'
+
+# ============================================
+# KIS-Stock-AI All-in-One Docker Compose
+# ============================================
+# 실행: docker compose up -d
+# 중지: docker compose down
+# 로그: docker compose logs -f
+# ============================================
+#
+# 사전 준비:
+#   1. .env 파일 설정 (cp .env.example .env)
+# ============================================
+
+services:
+  kis-stock-ai:
+    build: .
+    container_name: kis-stock-ai
+    restart: unless-stopped
+    ports:
+      - "80:80" # 웹 대시보드 (FastAPI)
+      - "8000:8000" # 실제 프로그램 (main_auto.py)
+    volumes:
+      - ./data:/app/kis-stock-ai/data # SQLite DB, ChromaDB 영속화
+      - ./logs:/app/kis-stock-ai/logs # 로그 영속화
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Seoul
+      - WEB_PORT=80
+      - APP_PORT=8000
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:80" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 120s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"

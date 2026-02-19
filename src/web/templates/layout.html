@@ -1,0 +1,142 @@
+<!-- templates/layout.html -->
+<!DOCTYPE html>
+<html lang="ko" class="dark">
+
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>KIS Stock AI</title>
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://unpkg.com/lightweight-charts/dist/lightweight-charts.standalone.production.js"></script>
+    <style>
+        /* 커스텀 스크롤바 */
+        ::-webkit-scrollbar {
+            width: 8px;
+            height: 8px;
+        }
+
+        ::-webkit-scrollbar-track {
+            background: #1f2937;
+        }
+
+        ::-webkit-scrollbar-thumb {
+            background: #4b5563;
+            border-radius: 4px;
+        }
+
+        ::-webkit-scrollbar-thumb:hover {
+            background: #6b7280;
+        }
+    </style>
+</head>
+
+<body class="bg-gray-900 text-gray-100 font-sans min-h-screen flex flex-col">
+
+    <!-- Top Navigation Bar -->
+    <nav class="bg-gray-800 border-b border-gray-700 h-14 flex items-center px-4 justify-between sticky top-0 z-50">
+        <!-- Logo -->
+        <div class="flex items-center space-x-6">
+            <a href="/" class="flex items-center space-x-2">
+                <span class="text-2xl">🚀</span>
+                <span class="font-bold text-xl text-blue-400 tracking-tight">KIS Stock AI</span>
+            </a>
+
+            <!-- Menu -->
+            <div class="hidden md:flex space-x-1">
+                <a href="/"
+                    class="px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-900 text-white' if page == 'dashboard' else 'text-gray-300 hover:bg-gray-700 hover:text-white' }}">Dashboard</a>
+                <a href="/trading"
+                    class="px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-900 text-white' if page == 'trading' else 'text-gray-300 hover:bg-gray-700 hover:text-white' }}">Trading</a>
+                <a href="/portfolio"
+                    class="px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-900 text-white' if page == 'portfolio' else 'text-gray-300 hover:bg-gray-700 hover:text-white' }}">Portfolio</a>
+                <a href="/strategy"
+                    class="px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-900 text-white' if page == 'strategy' else 'text-gray-300 hover:bg-gray-700 hover:text-white' }}">AI
+                    Report</a>
+                <a href="/ai-strategy"
+                    class="px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-900 text-white' if page == 'backtest' else 'text-gray-300 hover:bg-gray-700 hover:text-white' }}">AI
+                    Strategy</a>
+                <a href="/settings"
+                    class="px-3 py-2 rounded-md text-sm font-medium {{ 'bg-gray-900 text-white' if page == 'settings' else 'text-gray-300 hover:bg-gray-700 hover:text-white' }}">Settings</a>
+            </div>
+        </div>
+
+        <!-- Right Side -->
+        <div class="flex items-center space-x-4">
+            <!-- Account Balance (Real-time) -->
+            <div class="hidden lg:flex space-x-4 text-xs font-mono text-gray-400">
+                <span>주문가능원화 <span id="hdr-cash" class="text-gray-500">--</span></span>
+                <span>총자산 <span id="hdr-total" class="text-gray-500">--</span></span>
+                <span>손익 <span id="hdr-pnl" class="text-gray-500">--</span></span>
+            </div>
+
+            <!-- Status Indicator -->
+            <div class="flex items-center space-x-2 bg-gray-700 px-3 py-1 rounded-full">
+                <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
+                <span class="text-xs font-semibold text-green-400">Online</span>
+            </div>
+
+            <!-- Clock -->
+            <div class="text-sm font-mono text-gray-300" id="clock">--:--:--</div>
+        </div>
+    </nav>
+
+    <!-- Main Content -->
+    <main class="flex-1 p-4 overflow-y-auto">
+        {% block content %}{% endblock %}
+    </main>
+
+    <!-- Footer -->
+    <footer class="bg-gray-800 border-t border-gray-700 p-2 text-center text-xs text-gray-500">
+        KIS-Stock-AI v2.0 | Powered by BitNet & Antigravity Ultra
+    </footer>
+
+    <script>
+        // Clock
+        setInterval(() => {
+            const now = new Date();
+            document.getElementById('clock').innerText = now.toLocaleTimeString('ko-KR');
+        }, 1000);
+
+        // Header Account Balance
+        function formatKRW(v) {
+            if (v >= 100000000) return (v / 100000000).toFixed(1) + '억';
+            if (v >= 10000) return (v / 10000).toFixed(0) + '만';
+            return v.toLocaleString();
+        }
+        async function updateHeaderAccount() {
+            try {
+                const res = await fetch('/api/account/summary');
+                const data = await res.json();
+
+                const cashEl = document.getElementById('hdr-cash');
+                const totalEl = document.getElementById('hdr-total');
+                const pnlEl = document.getElementById('hdr-pnl');
+
+                if (data.order_available > 0 || data.cash > 0 || data.total_assets > 0) {
+                    cashEl.className = 'text-green-400';
+                    cashEl.textContent = formatKRW(data.order_available || data.cash) + '원';
+
+                    totalEl.className = 'text-white font-semibold';
+                    totalEl.textContent = formatKRW(data.total_assets) + '원';
+
+                    const pnl = data.profit_loss || 0;
+                    pnlEl.className = pnl >= 0 ? 'text-red-400' : 'text-blue-400';
+                    pnlEl.textContent = (pnl >= 0 ? '+' : '') + formatKRW(pnl) + '원';
+                } else {
+                    cashEl.className = 'text-gray-500';
+                    cashEl.textContent = '--';
+                    totalEl.className = 'text-gray-500';
+                    totalEl.textContent = '--';
+                    pnlEl.className = 'text-gray-500';
+                    pnlEl.textContent = '--';
+                }
+            } catch (e) { }
+        }
+        updateHeaderAccount();
+        setInterval(updateHeaderAccount, 30000);
+    </script>
+    {% block scripts %}{% endblock %}
+</body>
+
+</html>

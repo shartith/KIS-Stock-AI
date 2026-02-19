@@ -1,0 +1,30 @@
+services:
+  kis-stock-ai:
+    image: kis-stock-ai:latest
+    container_name: kis-stock-ai
+    restart: unless-stopped
+    ports:
+      - "8080:8080"
+      - "51121-51130:51121-51130"
+    volumes:
+      - kis-data:/app/data
+      - kis-logs:/app/logs
+    env_file:
+      - .env
+    environment:
+      - TZ=Asia/Seoul
+    healthcheck:
+      test: [ "CMD", "curl", "-f", "http://localhost:8080/" ]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 30s
+    logging:
+      driver: "json-file"
+      options:
+        max-size: "10m"
+        max-file: "3"
+
+volumes:
+  kis-data:
+  kis-logs:

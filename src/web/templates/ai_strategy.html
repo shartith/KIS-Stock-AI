@@ -1,0 +1,232 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="space-y-6">
+    <!-- Header -->
+    <div class="flex justify-between items-end">
+        <div>
+            <h1 class="text-2xl font-bold text-white">AI Strategy Extraction</h1>
+            <p class="text-gray-400 text-sm">유튜브 영상을 분석하여 정형화된 매매 전략을 생성하고 관리합니다.</p>
+        </div>
+        <div class="text-right">
+            <span class="text-xs text-gray-500">Active Strategies</span>
+            <div id="active-count" class="text-xl font-mono font-bold text-blue-400">0</div>
+        </div>
+    </div>
+
+    <!-- Extraction Input Card -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl p-6 shadow-xl">
+        <div class="flex flex-col space-y-4">
+            <div class="flex items-center space-x-2 text-blue-400 mb-2">
+                <span class="text-xl">📺</span>
+                <h2 class="font-bold">유튜브 전략 추출하기</h2>
+            </div>
+            <div class="flex space-x-3">
+                <input type="text" id="youtube-url" placeholder="https://www.youtube.com/watch?v=..."
+                    class="flex-1 bg-gray-900 border border-gray-600 rounded-lg px-4 py-3 text-white focus:outline-none focus:border-blue-500 transition-colors">
+                <button onclick="extractStrategy()" id="extract-btn"
+                    class="bg-blue-600 hover:bg-blue-500 text-white font-bold py-3 px-8 rounded-lg transition-all flex items-center space-x-2 shadow-lg shadow-blue-900/20">
+                    <span id="btn-text">분석 시작</span>
+                    <div id="btn-spinner"
+                        class="hidden w-4 h-4 border-2 border-white/30 border-t-white rounded-full animate-spin"></div>
+                </button>
+            </div>
+            <p class="text-xs text-gray-500">영상의 자막을 분석하여 매수/매도 조건을 수식화하고 저장합니다.</p>
+        </div>
+    </div>
+
+    <!-- Extraction Result (Hidden by default) -->
+    <div id="result-card"
+        class="hidden bg-gray-800 border-2 border-blue-500/50 rounded-xl p-6 shadow-xl animate-pulse-subtle">
+        <div class="flex justify-between items-start mb-4">
+            <h3 id="result-title" class="text-lg font-bold text-white">추출된 전략: 전략 로드 중...</h3>
+            <button onclick="saveStrategy()"
+                class="bg-green-600 hover:bg-green-500 text-white text-xs font-bold py-1 px-3 rounded">저장 및 활성화</button>
+        </div>
+        <div class="grid grid-cols-1 md:grid-cols-2 gap-4">
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+                <span class="text-xs text-blue-400 font-bold uppercase">Strategy Summary</span>
+                <p id="result-desc" class="text-sm text-gray-300 mt-2 leading-relaxed"></p>
+            </div>
+            <div class="bg-gray-900 p-4 rounded-lg border border-gray-700">
+                <span class="text-xs text-purple-400 font-bold uppercase">Quantified Rules</span>
+                <pre id="result-rules"
+                    class="text-xs text-gray-400 mt-2 font-mono whitespace-pre-wrap h-32 overflow-y-auto"></pre>
+            </div>
+        </div>
+    </div>
+
+    <!-- Strategy List Table -->
+    <div class="bg-gray-800 border border-gray-700 rounded-xl overflow-hidden shadow-xl">
+        <div class="px-6 py-4 border-b border-gray-700 flex justify-between items-center">
+            <h2 class="font-bold flex items-center space-x-2">
+                <span>📂</span>
+                <span>보유 전략 목록</span>
+            </h2>
+        </div>
+        <table class="w-full text-left text-sm">
+            <thead class="bg-gray-900/50 text-gray-400 uppercase text-xs">
+                <tr>
+                    <th class="px-6 py-3">전략명</th>
+                    <th class="px-6 py-3 text-center">승률 (성공/실패)</th>
+                    <th class="px-6 py-3">설명</th>
+                    <th class="px-6 py-3">상태</th>
+                    <th class="px-6 py-3 text-right">관리</th>
+                </tr>
+            </thead>
+            <tbody id="strategy-list" class="divide-y divide-gray-700">
+                <!-- Rows populated by JS -->
+                <tr>
+                    <td colspan="5" class="px-6 py-12 text-center text-gray-500">
+                        저장된 전략이 없습니다. 유튜브 링크를 통해 첫 전략을 추가해 보세요.
+                    </td>
+                </tr>
+            </tbody>
+        </table>
+    </div>
+</div>
+
+<style>
+    @keyframes pulse-subtle {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.95;
+        }
+    }
+
+    .animate-pulse-subtle {
+        animation: pulse-subtle 2s infinite ease-in-out;
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    let currentExtracted = null;
+
+    async function loadStrategies() {
+        try {
+            const res = await fetch('/api/strategy/list');
+            const strats = await res.json();
+            const list = document.getElementById('strategy-list');
+            document.getElementById('active-count').innerText = strats.filter(s => s.active).length;
+
+            if (strats.length === 0) {
+                list.innerHTML = `<tr><td colspan="5" class="px-6 py-12 text-center text-gray-500">저장된 전략이 없습니다.</td></tr>`;
+                return;
+            }
+
+            list.innerHTML = strats.map(s => {
+                const total = s.success_count + s.fail_count;
+                const winRate = total > 0 ? (s.success_count / total * 100).toFixed(0) + '%' : '-';
+                const statusClass = s.active ? 'text-green-400' : 'text-gray-500';
+
+                return `
+                    <tr class="hover:bg-gray-700/30 transition-colors">
+                        <td class="px-6 py-4 font-bold text-blue-300">${s.name}</td>
+                        <td class="px-6 py-4 text-center">
+                            <div class="flex flex-col items-center">
+                                <span class="font-mono text-lg ${s.success_count > s.fail_count ? 'text-red-400' : 'text-blue-400'}">${winRate}</span>
+                                <span class="text-[10px] text-gray-500">${s.success_count}W / ${s.fail_count}L</span>
+                            </div>
+                        </td>
+                        <td class="px-6 py-4 text-gray-400 max-w-xs truncate">${s.description || '-'}</td>
+                        <td class="px-6 py-4">
+                            <button onclick="toggleStrategy(${s.id}, ${!s.active})" 
+                                class="flex items-center space-x-1 ${statusClass} hover:opacity-80 transition-opacity">
+                                <div class="w-2 h-2 rounded-full ${s.active ? 'bg-green-400 animate-pulse' : 'bg-gray-600'}"></div>
+                                <span class="text-xs font-bold uppercase">${s.active ? 'Active' : 'Paused'}</span>
+                            </button>
+                        </td>
+                        <td class="px-6 py-4 text-right">
+                            <button onclick="deleteStrategy(${s.id})" class="text-gray-500 hover:text-red-400 transition-colors text-lg">🗑️</button>
+                        </td>
+                    </tr>
+                `;
+            }).join('');
+        } catch (e) {
+            console.error(e);
+        }
+    }
+
+    async function extractStrategy() {
+        const url = document.getElementById('youtube-url').value;
+        if (!url) return alert('유튜브 URL을 입력해 주세요.');
+
+        const btn = document.getElementById('extract-btn');
+        const text = document.getElementById('btn-text');
+        const spinner = document.getElementById('btn-spinner');
+
+        btn.disabled = true;
+        text.innerText = '추출 중...';
+        spinner.classList.remove('hidden');
+
+        try {
+            const res = await fetch('/api/strategy/youtube', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url })
+            });
+
+            const data = await res.json();
+            if (data.error) throw new Error(data.error);
+
+            currentExtracted = data.strategy;
+            document.getElementById('result-card').classList.remove('hidden');
+            document.getElementById('result-title').innerText = `추출된 전략: ${data.strategy.name}`;
+            document.getElementById('result-desc').innerText = data.strategy.description;
+            document.getElementById('result-rules').innerText = JSON.stringify(data.strategy.conditions, null, 2);
+
+            window.scrollTo({ top: 300, behavior: 'smooth' });
+        } catch (e) {
+            alert('전략 추출 실패: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            text.innerText = '분석 시작';
+            spinner.classList.add('hidden');
+        }
+    }
+
+    async function saveStrategy() {
+        if (!currentExtracted) return;
+        try {
+            const res = await fetch('/api/strategy/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(currentExtracted)
+            });
+            const data = await res.json();
+            if (data.success) {
+                alert('전략이 저장되었습니다.');
+                document.getElementById('result-card').classList.add('hidden');
+                document.getElementById('youtube-url').value = '';
+                loadStrategies();
+            }
+        } catch (e) {
+            alert('저장 실패');
+        }
+    }
+
+    async function toggleStrategy(sid, active) {
+        try {
+            await fetch(`/api/strategy/toggle?id=${sid}&active=${active}`, { method: 'POST' });
+            loadStrategies();
+        } catch (e) { }
+    }
+
+    async function deleteStrategy(sid) {
+        if (!confirm('정말 삭제하시겠습니까?')) return;
+        try {
+            await fetch(`/api/strategy/delete?id=${sid}`, { method: 'POST' });
+            loadStrategies();
+        } catch (e) { }
+    }
+
+    loadStrategies();
+</script>
+{% endblock %}

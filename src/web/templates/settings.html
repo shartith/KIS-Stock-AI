@@ -1,0 +1,644 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="max-w-3xl mx-auto bg-gray-800 rounded p-6 border border-gray-700">
+    <h2 class="text-xl font-bold text-white mb-6">⚙️ Settings</h2>
+
+    <div class="space-y-8">
+        <!-- KIS API -->
+        <div>
+            <h3 class="text-md font-semibold text-blue-400 mb-3 flex items-center">
+                <span class="mr-2">🏦</span> KIS API (한국투자증권)
+            </h3>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">App Key</label>
+                    <input type="password" id="kis-app-key"
+                        placeholder="{{ settings.KIS_APP_KEY.value if settings.KIS_APP_KEY.has_value else '미설정' }}"
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">Secret Key</label>
+                    <input type="password" id="kis-secret-key"
+                        placeholder="{{ settings.KIS_SECRET_KEY.value if settings.KIS_SECRET_KEY.has_value else '미설정' }}"
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                </div>
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">계좌번호</label>
+                    <input type="password" id="kis-acct-stock"
+                        placeholder="{{ settings.KIS_ACCT_STOCK.value if settings.KIS_ACCT_STOCK.has_value else '미설정' }}"
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                </div>
+            </div>
+        </div>
+
+        <!-- Antigravity Ultra -->
+        <div class="pt-4 border-t border-gray-700">
+            <h3 class="text-md font-semibold text-purple-400 mb-3 flex items-center">
+                <span class="mr-2">🚀</span> Antigravity Ultra
+                <span id="ag-status-badge" class="ml-auto text-xs px-2 py-0.5 rounded-full bg-gray-600 text-gray-300">확인
+                    중...</span>
+            </h3>
+
+            <!-- 로그인 상태 표시 -->
+            <div id="ag-logged-out" class="hidden">
+                <p class="text-sm text-gray-400 mb-3">
+                    Google 계정으로 로그인하면 Claude Opus 4.5/4.6, Gemini 3 Pro 등 고급 AI 모델을 사용할 수 있습니다.
+                </p>
+                <button onclick="antigravityLogin()" id="ag-login-btn"
+                    class="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-2.5 px-6 rounded-lg flex items-center justify-center space-x-2 transition-all">
+                    <svg class="w-5 h-5" viewBox="0 0 24 24">
+                        <path fill="currentColor"
+                            d="M22.56 12.25c0-.78-.07-1.53-.2-2.25H12v4.26h5.92a5.06 5.06 0 0 1-2.2 3.32v2.77h3.57c2.08-1.92 3.28-4.74 3.28-8.1z" />
+                        <path fill="currentColor"
+                            d="M12 23c2.97 0 5.46-.98 7.28-2.66l-3.57-2.77c-.98.66-2.23 1.06-3.71 1.06-2.86 0-5.29-1.93-6.16-4.53H2.18v2.84C3.99 20.53 7.7 23 12 23z" />
+                        <path fill="currentColor"
+                            d="M5.84 14.09c-.22-.66-.35-1.36-.35-2.09s.13-1.43.35-2.09V7.07H2.18C1.43 8.55 1 10.22 1 12s.43 3.45 1.18 4.93l2.85-2.22.81-.62z" />
+                        <path fill="currentColor"
+                            d="M12 5.38c1.62 0 3.06.56 4.21 1.64l3.15-3.15C17.45 2.09 14.97 1 12 1 7.7 1 3.99 3.47 2.18 7.07l3.66 2.84c.87-2.6 3.3-4.53 6.16-4.53z" />
+                    </svg>
+                    <span>Google 계정으로 로그인</span>
+                </button>
+            </div>
+
+            <div id="ag-logged-in" class="hidden space-y-3">
+                <div class="flex items-center justify-between bg-gray-750 rounded-lg p-3"
+                    style="background: rgba(139, 92, 246, 0.1); border: 1px solid rgba(139, 92, 246, 0.2);">
+                    <div class="flex items-center space-x-2">
+                        <span class="text-green-400 text-lg">🟢</span>
+                        <div>
+                            <div class="text-sm text-white font-medium" id="ag-email">-</div>
+                            <div class="text-xs text-gray-400">Antigravity Ultra 연결됨</div>
+                        </div>
+                    </div>
+                    <button onclick="antigravityLogout()"
+                        class="text-xs text-red-400 hover:text-red-300 px-3 py-1 rounded border border-red-800 hover:border-red-600 transition">
+                        로그아웃
+                    </button>
+                </div>
+
+                <!-- 모델 선택 -->
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">AI 모델</label>
+                    <select id="ag-model-select" onchange="antigravitySetModel(this.value)"
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                    </select>
+                </div>
+            </div>
+
+            <!-- 로그인 진행 중 -->
+            <div id="ag-logging-in" class="hidden text-center py-4">
+                <div
+                    class="animate-spin w-8 h-8 border-2 border-purple-400 border-t-transparent rounded-full mx-auto mb-2">
+                </div>
+                <p class="text-sm text-gray-400">Google 로그인 대기 중...</p>
+                <p class="text-xs text-gray-500 mt-1">브라우저에서 로그인을 완료해주세요</p>
+            </div>
+
+            <!-- Legacy 설정 (접기) -->
+            <details class="mt-3">
+                <summary class="text-xs text-gray-500 cursor-pointer hover:text-gray-400">고급 설정 (API Key / 모델)
+                </summary>
+                <div class="space-y-2 mt-2">
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">Google AI API Key</label>
+                        <input type="password" id="antigravity-api-key"
+                            placeholder="{{ settings.ANTIGRAVITY_API_KEY.value if settings.ANTIGRAVITY_API_KEY.has_value else '미설정' }}"
+                            class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">Model (Legacy)</label>
+                        <select id="antigravity-model"
+                            class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                            <option value="gemini-2.0-flash" {% if settings.ANTIGRAVITY_MODEL.value=='gemini-2.0-flash'
+                                or not settings.ANTIGRAVITY_MODEL.has_value %}selected{% endif %}>gemini-2.0-flash
+                            </option>
+                            <option value="gemini-2.0-flash-lite" {% if
+                                settings.ANTIGRAVITY_MODEL.value=='gemini-2.0-flash-lite' %}selected{% endif %}>
+                                gemini-2.0-flash-lite</option>
+                            <option value="gemini-1.5-pro" {% if settings.ANTIGRAVITY_MODEL.value=='gemini-1.5-pro'
+                                %}selected{% endif %}>gemini-1.5-pro</option>
+                        </select>
+                    </div>
+                </div>
+            </details>
+        </div>
+
+        <!-- AI 설정 -->
+        <div class="pt-4 border-t border-gray-700">
+            <h3 class="text-md font-semibold text-yellow-400 mb-3 flex items-center">
+                <span class="mr-2">🤖</span> AI 설정
+            </h3>
+            <div class="space-y-4">
+                <div class="space-y-2">
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">AI 모드</label>
+                        <select id="ai-mode"
+                            class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                            <option value="local" {% if settings.AI_MODE.value=='local' or not settings.AI_MODE.has_value
+                                %}selected{% endif %}>local (로컬 LLM 우선)</option>
+                            <option value="antigravity" {% if settings.AI_MODE.value=='antigravity' %}selected{% endif %}>
+                                antigravity (Google AI 전용)</option>
+                        </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">Local LLM URL</label>
+                        <input type="text" id="local-llm-url"
+                            placeholder="{{ settings.LOCAL_LLM_URL.value or 'http://127.0.0.1:8002' }}"
+                            class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">Local LLM Model</label>
+                        <input type="text" id="local-llm-model"
+                            placeholder="{{ settings.LOCAL_LLM_MODEL.value or 'bitnet-3b' }}"
+                            class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                    </div>
+                </div>
+
+                <!-- 로컬 모델 학습 -->
+                <div class="bg-gray-750 p-3 rounded-lg border border-gray-700">
+                    <div class="flex justify-between items-center mb-2">
+                        <span class="text-sm text-gray-300 font-medium">🎓 로컬 모델 학습 (Fine-tuning)</span>
+                        <span id="train-status-badge" class="text-xs px-2 py-0.5 rounded-full bg-gray-600 text-gray-400">대기 중</span>
+                    </div>
+                    <p class="text-xs text-gray-500 mb-3">
+                        누적된 매매 기록(TrainingDataset)을 사용하여 로컬 LLM을 미세조정합니다. 
+                        (GPU 필요, 약 10~30분 소요)
+                        <br>
+                        <span id="dataset-status" class="mt-1 inline-block">데이터 집계 중...</span>
+                    </p>
+                    <div class="flex items-center space-x-2">
+                        <button onclick="startTraining()" id="btn-train-start"
+                            class="bg-blue-600 hover:bg-blue-700 text-white text-xs font-bold py-1.5 px-4 rounded transition">
+                            학습 시작
+                        </button>
+                        <span id="train-message" class="text-xs text-gray-400 truncate"></span>
+                    </div>
+                    
+                    <!-- 데이터셋 관리 -->
+                    <div class="mt-4 pt-3 border-t border-gray-600 flex space-x-3">
+                        <button onclick="exportDataset()" 
+                            class="bg-gray-600 hover:bg-gray-500 text-white text-xs py-1.5 px-3 rounded flex items-center space-x-1 transition">
+                            <span>⬇️</span><span>데이터 내보내기 (JSONL)</span>
+                        </button>
+                        <label class="bg-gray-600 hover:bg-gray-500 text-white text-xs py-1.5 px-3 rounded flex items-center space-x-1 cursor-pointer transition">
+                            <span>⬆️</span><span>데이터 불러오기</span>
+                            <input type="file" id="dataset-upload" class="hidden" accept=".jsonl" onchange="importDataset(this)">
+                        </label>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <!-- 거래 설정 -->
+        <div class="pt-4 border-t border-gray-700">
+            <h3 class="text-md font-semibold text-orange-400 mb-3 flex items-center">
+                <span class="mr-2">📊</span> 거래 설정
+            </h3>
+            <div class="space-y-3">
+                <!-- 자동 종목 스캔 -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="enable-auto-scan" class="rounded bg-gray-700 border-gray-600" {%
+                                if settings.ENABLE_AUTO_SCAN.value !='0' %}checked{% endif %}>
+                            <label for="enable-auto-scan" class="text-sm text-gray-300">🔍 자동 종목 스캔</label>
+                        </div>
+                        <p class="text-xs text-gray-500 ml-6">장 운영시간 중 종목을 자동으로 탐색하고 AI 분석합니다.</p>
+                    </div>
+                </div>
+                <!-- 자동 매수 실행 -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="enable-auto-buy" class="rounded bg-gray-700 border-gray-600" {%
+                                if settings.ENABLE_AUTO_BUY.value=='1' %}checked{% endif %}>
+                            <label for="enable-auto-buy" class="text-sm text-gray-300">💰 자동 매수 실행</label>
+                        </div>
+                        <p class="text-xs text-orange-500 ml-6">⚠️ 활성화 시 AI 판단에 따라 실제 매수 주문이 실행됩니다.</p>
+                    </div>
+                </div>
+                <!-- 자동 매도 실행 -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="enable-auto-sell" class="rounded bg-gray-700 border-gray-600" {%
+                                if settings.ENABLE_AUTO_SELL.value=='1' %}checked{% endif %}>
+                            <label for="enable-auto-sell" class="text-sm text-gray-300">📤 자동 매도 실행</label>
+                        </div>
+                        <p class="text-xs text-orange-500 ml-6">⚠️ 활성화 시 AI 판단에 따라 실제 매도 주문이 실행됩니다.</p>
+                    </div>
+                </div>
+                <!-- 장외 분석 활동 -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="enable-offmarket" class="rounded bg-gray-700 border-gray-600" {%
+                                if settings.ENABLE_OFFMARKET.value !='0' %}checked{% endif %}>
+                            <label for="enable-offmarket" class="text-sm text-gray-300">🌙 장외 분석 활동</label>
+                        </div>
+                        <p class="text-xs text-gray-500 ml-6">장 마감 후 일봉 수집, 기술적 분석, 글로벌 연동 분석 등을 실행합니다.</p>
+                    </div>
+                </div>
+                <!-- 뉴스/공시 수집 -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="enable-news-collect" class="rounded bg-gray-700 border-gray-600"
+                                {% if settings.ENABLE_NEWS_COLLECT.value !='0' %}checked{% endif %}>
+                            <label for="enable-news-collect" class="text-sm text-gray-300">📰 뉴스/공시 수집</label>
+                        </div>
+                        <p class="text-xs text-gray-500 ml-6">Yahoo Finance RSS 뉴스를 수집하고 AI 감성분석을 실행합니다.</p>
+                    </div>
+                </div>
+                <!-- 레버리지/인버스 거래 허용 -->
+                <div class="flex items-center justify-between">
+                    <div>
+                        <div class="flex items-center space-x-2">
+                            <input type="checkbox" id="allow-leverage" class="rounded bg-gray-700 border-gray-600" {% if
+                                settings.ALLOW_LEVERAGE.value=='1' %}checked{% endif %}>
+                            <label for="allow-leverage" class="text-sm text-gray-300">⚡ 레버리지/인버스 거래 허용</label>
+                        </div>
+                        <p class="text-xs text-gray-500 ml-6">비활성화 시 레버리지, 인버스, 곱버스, 2X/3X ETF 등의 매수를 차단합니다.</p>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+
+        <!-- Discord -->
+        <div class="pt-4 border-t border-gray-700">
+            <h3 class="text-md font-semibold text-indigo-400 mb-3 flex items-center">
+                <span class="mr-2">💬</span> Discord 알림
+            </h3>
+            <div class="space-y-2">
+                <div>
+                    <label class="text-xs text-gray-400 block mb-1">Webhook URL</label>
+                    <input type="text" id="discord-webhook"
+                        placeholder="{{ settings.DISCORD_WEBHOOK_URL.value if settings.DISCORD_WEBHOOK_URL.has_value else 'https://discord.com/api/webhooks/...' }}"
+                        class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                </div>
+
+                <div class="flex items-center space-x-2 mt-2">
+                    <input type="checkbox" id="noti-trade" class="rounded bg-gray-700 border-gray-600" {% if
+                        settings.NOTI_TRADE_ALERTS.value !='0' %}checked{% endif %}>
+                    <label for="noti-trade" class="text-sm text-gray-300">매매 알림 (Buy/Sell)</label>
+                </div>
+                <div class="flex items-center space-x-2">
+                    <input type="checkbox" id="noti-report" class="rounded bg-gray-700 border-gray-600" {% if
+                        settings.NOTI_HOURLY_REPORT.value !='0' %}checked{% endif %}>
+                    <label for="noti-report" class="text-sm text-gray-300">시간별 리포트</label>
+                </div>
+
+                <button onclick="testWebhook()" class="text-xs text-blue-400 hover:text-blue-300 underline mt-1">테스트 메시지
+                    전송</button>
+            </div>
+        </div>
+
+        <!-- 저장 + 재시작 버튼 -->
+        <div class="pt-6 border-t border-gray-700 flex items-center justify-between">
+            <div id="save-status" class="text-sm text-gray-400"></div>
+            <div class="flex items-center space-x-3">
+                <button onclick="restartServer()"
+                    class="bg-red-600 hover:bg-red-700 text-white font-bold py-2 px-6 rounded flex items-center space-x-2 transition">
+                    <span>🔄</span><span>서버 재시작</span>
+                </button>
+                <button onclick="saveSettings()"
+                    class="bg-green-600 hover:bg-green-700 text-white font-bold py-2 px-8 rounded transition">
+                    💾 Save Settings
+                </button>
+            </div>
+        </div>
+    </div>
+</div>
+
+<script>
+    async function saveSettings() {
+        const statusEl = document.getElementById('save-status');
+        statusEl.textContent = '저장 중...';
+        statusEl.className = 'text-sm text-yellow-400';
+
+        const data = {
+            kis_app_key: document.getElementById('kis-app-key').value || null,
+            kis_secret_key: document.getElementById('kis-secret-key').value || null,
+            kis_acct_stock: document.getElementById('kis-acct-stock').value || null,
+            antigravity_api_key: document.getElementById('antigravity-api-key').value || null,
+            antigravity_model: document.getElementById('antigravity-model').value || null,
+            discord_webhook_url: document.getElementById('discord-webhook').value || null,
+            noti_trade_alerts: document.getElementById('noti-trade').checked ? '1' : '0',
+            noti_hourly_report: document.getElementById('noti-report').checked ? '1' : '0',
+            ai_mode: document.getElementById('ai-mode').value || null,
+            local_llm_url: document.getElementById('local-llm-url').value || null,
+            local_llm_model: document.getElementById('local-llm-model').value || null,
+            allow_leverage: document.getElementById('allow-leverage').checked ? '1' : '0',
+            enable_auto_scan: document.getElementById('enable-auto-scan').checked ? '1' : '0',
+            enable_auto_buy: document.getElementById('enable-auto-buy').checked ? '1' : '0',
+            enable_auto_sell: document.getElementById('enable-auto-sell').checked ? '1' : '0',
+            enable_offmarket: document.getElementById('enable-offmarket').checked ? '1' : '0',
+            enable_news_collect: document.getElementById('enable-news-collect').checked ? '1' : '0',
+        };
+
+        try {
+            const res = await fetch('/api/settings/save', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+
+            if (res.ok) {
+                const result = await res.json();
+                statusEl.textContent = `✅ ${result.saved}개 설정 저장 완료`;
+                statusEl.className = 'text-sm text-green-400';
+                // 2초 후 페이지 새로고침 (마스킹된 값 반영)
+                setTimeout(() => location.reload(), 2000);
+            } else {
+                statusEl.textContent = '❌ 저장 실패';
+                statusEl.className = 'text-sm text-red-400';
+            }
+        } catch (e) {
+            console.error(e);
+            statusEl.textContent = '❌ 연결 오류';
+            statusEl.className = 'text-sm text-red-400';
+        }
+    }
+
+    async function testWebhook() {
+        const webhook = document.getElementById('discord-webhook').value;
+        if (!webhook) return alert('Webhook URL을 먼저 입력하세요.');
+
+        try {
+            const res = await fetch('/api/settings/test-webhook', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ url: webhook })
+            });
+            const result = await res.json();
+            alert(result.message || '테스트 메시지 전송 완료!');
+        } catch (e) {
+            alert('테스트 메시지 전송 실패');
+        }
+    }
+
+    async function restartServer() {
+        if (!confirm('서버를 재시작하시겠습니까?\n설정 변경사항이 적용됩니다.')) return;
+
+        const statusEl = document.getElementById('save-status');
+        statusEl.textContent = '🔄 서버 재시작 중...';
+        statusEl.className = 'text-sm text-yellow-400';
+
+        try {
+            await fetch('/api/server/restart', { method: 'POST' });
+        } catch (e) {
+            // 서버 종료로 연결이 끊어지면 정상
+        }
+
+        // 재시작 대기 후 자동 새로고침
+        statusEl.textContent = '⏳ 3초 후 자동 새로고침...';
+        let countdown = 3;
+        const interval = setInterval(() => {
+            countdown--;
+            statusEl.textContent = `⏳ ${countdown}초 후 자동 새로고침...`;
+            if (countdown <= 0) {
+                clearInterval(interval);
+                location.reload();
+            }
+        }, 1000);
+    }
+
+    // ============================
+    // Antigravity Ultra Auth
+    // ============================
+
+    let _agPollTimer = null;
+
+    async function loadAntigravityStatus() {
+        try {
+            const res = await fetch('/api/antigravity/status');
+            const data = await res.json();
+            const badge = document.getElementById('ag-status-badge');
+            const loggedOut = document.getElementById('ag-logged-out');
+            const loggedIn = document.getElementById('ag-logged-in');
+            const loggingIn = document.getElementById('ag-logging-in');
+
+            loggingIn.classList.add('hidden');
+
+            if (data.authenticated) {
+                loggedOut.classList.add('hidden');
+                loggedIn.classList.remove('hidden');
+                document.getElementById('ag-email').textContent = data.email || 'Unknown';
+                badge.textContent = '🟢 연결됨';
+                badge.className = 'ml-auto text-xs px-2 py-0.5 rounded-full bg-green-900 text-green-300';
+
+                // 모델 드롭다운 채우기
+                const select = document.getElementById('ag-model-select');
+                select.innerHTML = '';
+                for (const [value, label] of Object.entries(data.available_models || {})) {
+                    const opt = document.createElement('option');
+                    opt.value = value;
+                    opt.textContent = label;
+                    if (value === data.model) opt.selected = true;
+                    select.appendChild(opt);
+                }
+            } else {
+                loggedOut.classList.remove('hidden');
+                loggedIn.classList.add('hidden');
+                badge.textContent = '🔴 미연결';
+                badge.className = 'ml-auto text-xs px-2 py-0.5 rounded-full bg-red-900 text-red-300';
+            }
+        } catch (e) {
+            console.error('Failed to load Antigravity status:', e);
+        }
+    }
+
+    async function antigravityLogin() {
+        const loggedOut = document.getElementById('ag-logged-out');
+        const loggingIn = document.getElementById('ag-logging-in');
+
+        loggedOut.classList.add('hidden');
+        loggingIn.classList.remove('hidden');
+
+        try {
+            const res = await fetch('/api/antigravity/login', { method: 'POST' });
+            const data = await res.json();
+
+            if (data.status !== 'login_started') {
+                alert('로그인 시작 실패: ' + (data.error || 'Unknown error'));
+                loggedOut.classList.remove('hidden');
+                loggingIn.classList.add('hidden');
+                return;
+            }
+
+            // 클라이언트 브라우저에서 Google 로그인 페이지 열기
+            window.open(data.auth_url, '_blank');
+
+            // 콜백 완료 폴링
+            _agPollTimer = setInterval(async () => {
+                try {
+                    const pollRes = await fetch('/api/antigravity/callback-status');
+                    const pollData = await pollRes.json();
+                    if (pollData.completed) {
+                        clearInterval(_agPollTimer);
+                        _agPollTimer = null;
+                        if (pollData.success) {
+                            loadAntigravityStatus();
+                        } else {
+                            alert('로그인 실패: ' + (pollData.error || 'Unknown error'));
+                            loggedOut.classList.remove('hidden');
+                            loggingIn.classList.add('hidden');
+                        }
+                    }
+                } catch (e) {
+                    console.error('Poll error:', e);
+                }
+            }, 1500);
+
+            // 5분 타임아웃
+            setTimeout(() => {
+                if (_agPollTimer) {
+                    clearInterval(_agPollTimer);
+                    _agPollTimer = null;
+                    loggedOut.classList.remove('hidden');
+                    loggingIn.classList.add('hidden');
+                    alert('로그인 시간 초과');
+                }
+            }, 300000);
+
+        } catch (e) {
+            alert('로그인 오류: ' + e.message);
+            loggedOut.classList.remove('hidden');
+            loggingIn.classList.add('hidden');
+        }
+    }
+
+    async function antigravityLogout() {
+        if (!confirm('Antigravity Ultra에서 로그아웃하시겠습니까?')) return;
+        try {
+            await fetch('/api/antigravity/logout', { method: 'POST' });
+            loadAntigravityStatus();
+        } catch (e) {
+            alert('로그아웃 실패');
+        }
+    }
+
+    async function antigravitySetModel(model) {
+        try {
+            const res = await fetch('/api/antigravity/model', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ model })
+            });
+            if (res.ok) {
+                const badge = document.getElementById('ag-status-badge');
+                badge.textContent = '✅ 모델 변경됨';
+                setTimeout(() => { badge.textContent = '🟢 연결됨'; }, 2000);
+            }
+        } catch (e) {
+            alert('모델 변경 실패');
+        }
+    }
+
+    // ============================
+    // 로컬 모델 학습
+    // ============================
+
+    async function loadTrainingStatus() {
+        try {
+            // 학습 상태 조회
+            const resStatus = await fetch('/api/ai/train/status');
+            const dataStatus = await resStatus.json();
+            updateTrainingUI(dataStatus);
+            
+            // 데이터셋 개수 조회
+            const resCount = await fetch('/api/ai/dataset/count');
+            const dataCount = await resCount.json();
+            updateDatasetUI(dataCount);
+        } catch (e) {
+            console.error('Training status error:', e);
+        }
+    }
+
+    function updateDatasetUI(data) {
+        const el = document.getElementById('dataset-status');
+        const total = data.total;
+        const recommended = data.recommended;
+        
+        let color = 'text-green-400';
+        let icon = '✅';
+        let msg = '학습 가능';
+        
+        if (total < recommended) {
+            color = 'text-red-400';
+            icon = '⚠️';
+            msg = `데이터 부족 (최소 ${recommended}건 권장)`;
+        } else if (total < recommended * 2) {
+            color = 'text-yellow-400';
+            icon = '📊';
+            msg = '학습 가능 (데이터 추가 권장)';
+        }
+        
+        el.className = `mt-1 inline-block font-medium ${color}`;
+        el.textContent = `${icon} 현재 데이터셋: ${total}건 (${msg})`;
+    }
+
+    function updateTrainingUI(data) {
+        const badge = document.getElementById('train-status-badge');
+        const btn = document.getElementById('btn-train-start');
+        const msg = document.getElementById('train-message');
+
+        msg.textContent = data.message || "";
+
+        if (data.status === 'running') {
+            badge.textContent = '학습 중...';
+            badge.className = 'text-xs px-2 py-0.5 rounded-full bg-yellow-900 text-yellow-300 animate-pulse';
+            btn.disabled = true;
+            btn.classList.add('opacity-50', 'cursor-not-allowed');
+            btn.textContent = '진행 중';
+        } else if (data.status === 'completed') {
+            badge.textContent = '완료됨';
+            badge.className = 'text-xs px-2 py-0.5 rounded-full bg-green-900 text-green-300';
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            btn.textContent = '다시 학습';
+        } else if (data.status === 'error') {
+            badge.textContent = '오류';
+            badge.className = 'text-xs px-2 py-0.5 rounded-full bg-red-900 text-red-300';
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            btn.textContent = '다시 시도';
+        } else {
+            badge.textContent = '대기 중';
+            badge.className = 'text-xs px-2 py-0.5 rounded-full bg-gray-600 text-gray-400';
+            btn.disabled = false;
+            btn.classList.remove('opacity-50', 'cursor-not-allowed');
+            btn.textContent = '학습 시작';
+        }
+    }
+
+    async function startTraining() {
+        if (!confirm('로컬 모델 학습을 시작하시겠습니까?\nGPU 자원이 많이 소모될 수 있습니다.')) return;
+        
+        try {
+            const res = await fetch('/api/ai/train/start', { method: 'POST' });
+            const data = await res.json();
+            
+            if (res.ok) {
+                alert('학습 프로세스가 시작되었습니다.\n완료 시 시스템 로그에 기록됩니다.');
+                loadTrainingStatus();
+            } else {
+                alert('오류: ' + data.error);
+            }
+        } catch (e) {
+            alert('요청 실패: ' + e.message);
+        }
+    }
+
+    // 페이지 로드 시 상태 확인
+    document.addEventListener('DOMContentLoaded', () => {
+        loadAntigravityStatus();
+        loadTrainingStatus();
+        // 5초마다 학습 상태 폴링
+        setInterval(loadTrainingStatus, 5000);
+    });
+
+</script>
+{% endblock %}

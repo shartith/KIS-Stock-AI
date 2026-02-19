@@ -1,0 +1,351 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="max-w-5xl mx-auto space-y-6">
+
+    <!-- 설정 폼 -->
+    <div class="bg-gray-800 rounded p-5 border border-gray-700">
+        <h2 class="text-lg font-bold text-white mb-4">📊 Backtest</h2>
+
+        <div class="grid grid-cols-2 md:grid-cols-4 gap-3">
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">종목코드</label>
+                <input type="text" id="bt-symbol" value="005930"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+            </div>
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">종목명</label>
+                <input type="text" id="bt-name" value="삼성전자"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+            </div>
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">시작일</label>
+                <input type="date" id="bt-start"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+            </div>
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">종료일</label>
+                <input type="date" id="bt-end"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+            </div>
+        </div>
+
+        <div class="grid grid-cols-2 md:grid-cols-5 gap-3 mt-3">
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">전략</label>
+                <select id="bt-strategy"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                    <option value="ai_combined">AI 종합</option>
+                    <option value="technical">기술적 분석</option>
+                    <option value="momentum">모멘텀</option>
+                    <option value="volume">거래량 급증</option>
+                    <option value="value">가치투자</option>
+                </select>
+            </div>
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">초기 자본</label>
+                <input type="number" id="bt-capital" value="10000000"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+            </div>
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">손절 (%)</label>
+                <input type="number" id="bt-stoploss" value="5" step="0.5"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+            </div>
+            <div>
+                <label class="text-xs text-gray-400 block mb-1">익절 (%)</label>
+                <input type="number" id="bt-takeprofit" value="10" step="0.5"
+                    class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+            </div>
+            <div class="flex items-end">
+                <button onclick="runBacktest()" id="btn-run"
+                    class="w-full bg-blue-600 hover:bg-blue-700 text-white font-bold py-2 px-4 rounded text-sm">
+                    🚀 실행
+                </button>
+            </div>
+        </div>
+    </div>
+
+    <!-- 로딩 -->
+    <div id="loading" class="hidden text-center py-8">
+        <div class="inline-block animate-spin rounded-full h-8 w-8 border-b-2 border-blue-400"></div>
+        <p class="text-gray-400 mt-2">백테스트 실행 중...</p>
+    </div>
+
+    <!-- 결과 영역 -->
+    <div id="result-area" class="hidden space-y-4">
+        <!-- 성과 카드 -->
+        <div class="grid grid-cols-3 md:grid-cols-6 gap-3">
+            <div class="bg-gray-800 rounded p-3 border border-gray-700 text-center">
+                <div class="text-xs text-gray-400">총 수익률</div>
+                <div id="m-return" class="text-xl font-bold mt-1">-</div>
+            </div>
+            <div class="bg-gray-800 rounded p-3 border border-gray-700 text-center">
+                <div class="text-xs text-gray-400">승률</div>
+                <div id="m-winrate" class="text-xl font-bold text-yellow-400 mt-1">-</div>
+            </div>
+            <div class="bg-gray-800 rounded p-3 border border-gray-700 text-center">
+                <div class="text-xs text-gray-400">MDD</div>
+                <div id="m-mdd" class="text-xl font-bold text-red-400 mt-1">-</div>
+            </div>
+            <div class="bg-gray-800 rounded p-3 border border-gray-700 text-center">
+                <div class="text-xs text-gray-400">샤프 비율</div>
+                <div id="m-sharpe" class="text-xl font-bold text-purple-400 mt-1">-</div>
+            </div>
+            <div class="bg-gray-800 rounded p-3 border border-gray-700 text-center">
+                <div class="text-xs text-gray-400">손익비</div>
+                <div id="m-plratio" class="text-xl font-bold text-cyan-400 mt-1">-</div>
+            </div>
+            <div class="bg-gray-800 rounded p-3 border border-gray-700 text-center">
+                <div class="text-xs text-gray-400">거래 횟수</div>
+                <div id="m-trades" class="text-xl font-bold text-gray-300 mt-1">-</div>
+            </div>
+        </div>
+
+        <!-- 자산 곡선 차트 -->
+        <div class="bg-gray-800 rounded p-4 border border-gray-700">
+            <h3 class="text-sm font-semibold text-gray-300 mb-2">📈 자산 곡선 (Equity Curve)</h3>
+            <canvas id="equity-chart" height="200"></canvas>
+        </div>
+
+        <!-- 거래 내역 -->
+        <div class="bg-gray-800 rounded p-4 border border-gray-700">
+            <h3 class="text-sm font-semibold text-gray-300 mb-2">📋 거래 내역</h3>
+            <div class="overflow-x-auto max-h-64 overflow-y-auto">
+                <table class="w-full text-xs">
+                    <thead class="text-gray-400 border-b border-gray-700 sticky top-0 bg-gray-800">
+                        <tr>
+                            <th class="py-2 px-2 text-left">날짜</th>
+                            <th class="py-2 px-2 text-center">구분</th>
+                            <th class="py-2 px-2 text-right">가격</th>
+                            <th class="py-2 px-2 text-right">수량</th>
+                            <th class="py-2 px-2 text-right">금액</th>
+                            <th class="py-2 px-2 text-right">손익</th>
+                            <th class="py-2 px-2 text-left">사유</th>
+                        </tr>
+                    </thead>
+                    <tbody id="trades-body"></tbody>
+                </table>
+            </div>
+        </div>
+    </div>
+
+    <!-- 실행 이력 -->
+    <div class="bg-gray-800 rounded p-4 border border-gray-700">
+        <h3 class="text-sm font-semibold text-gray-300 mb-3">📁 실행 이력</h3>
+        <div class="overflow-x-auto">
+            <table class="w-full text-xs">
+                <thead class="text-gray-400 border-b border-gray-700">
+                    <tr>
+                        <th class="py-2 px-2 text-left">일시</th>
+                        <th class="py-2 px-2 text-left">종목</th>
+                        <th class="py-2 px-2 text-center">전략</th>
+                        <th class="py-2 px-2 text-right">수익률</th>
+                        <th class="py-2 px-2 text-right">승률</th>
+                        <th class="py-2 px-2 text-right">MDD</th>
+                        <th class="py-2 px-2 text-right">샤프</th>
+                        <th class="py-2 px-2 text-center">기간</th>
+                    </tr>
+                </thead>
+                <tbody id="history-body">
+                    <tr>
+                        <td colspan="8" class="py-4 text-center text-gray-500">로딩 중...</td>
+                    </tr>
+                </tbody>
+            </table>
+        </div>
+    </div>
+</div>
+
+<script>
+    let equityChart = null;
+
+    // 날짜 기본값 설정 (6개월 전 ~ 오늘)
+    const today = new Date();
+    const sixMonthsAgo = new Date(today);
+    sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6);
+    document.getElementById('bt-end').value = today.toISOString().split('T')[0];
+    document.getElementById('bt-start').value = sixMonthsAgo.toISOString().split('T')[0];
+
+    // 이력 로드
+    loadHistory();
+
+    async function runBacktest() {
+        const btn = document.getElementById('btn-run');
+        const loading = document.getElementById('loading');
+        const resultArea = document.getElementById('result-area');
+
+        btn.disabled = true;
+        btn.textContent = '⏳ 실행 중...';
+        loading.classList.remove('hidden');
+        resultArea.classList.add('hidden');
+
+        const data = {
+            symbol: document.getElementById('bt-symbol').value,
+            name: document.getElementById('bt-name').value,
+            start_date: document.getElementById('bt-start').value,
+            end_date: document.getElementById('bt-end').value,
+            strategy: document.getElementById('bt-strategy').value,
+            initial_capital: parseInt(document.getElementById('bt-capital').value),
+            stop_loss_pct: parseFloat(document.getElementById('bt-stoploss').value) / 100,
+            take_profit_pct: parseFloat(document.getElementById('bt-takeprofit').value) / 100,
+        };
+
+        try {
+            const res = await fetch('/api/backtest/run', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify(data)
+            });
+            const result = await res.json();
+
+            if (result.error) {
+                alert('❌ ' + result.error);
+                return;
+            }
+
+            displayResult(result);
+            loadHistory();
+        } catch (e) {
+            alert('❌ 실행 오류: ' + e.message);
+        } finally {
+            btn.disabled = false;
+            btn.textContent = '🚀 실행';
+            loading.classList.add('hidden');
+        }
+    }
+
+    function displayResult(data) {
+        const resultArea = document.getElementById('result-area');
+        resultArea.classList.remove('hidden');
+        const m = data.metrics;
+
+        // 성과 카드
+        const retEl = document.getElementById('m-return');
+        retEl.textContent = m.total_return.toFixed(1) + '%';
+        retEl.className = 'text-xl font-bold mt-1 ' + (m.total_return >= 0 ? 'text-green-400' : 'text-red-400');
+
+        document.getElementById('m-winrate').textContent = m.win_rate.toFixed(0) + '%';
+        document.getElementById('m-mdd').textContent = '-' + m.mdd.toFixed(1) + '%';
+        document.getElementById('m-sharpe').textContent = m.sharpe_ratio.toFixed(2);
+        document.getElementById('m-plratio').textContent = m.profit_loss_ratio.toFixed(2);
+        document.getElementById('m-trades').textContent = m.total_trades;
+
+        // 자산 곡선 차트
+        const labels = data.equity_curve.map(e => e.date);
+        const values = data.equity_curve.map(e => e.value);
+        const ctx = document.getElementById('equity-chart').getContext('2d');
+
+        if (equityChart) equityChart.destroy();
+        equityChart = new Chart(ctx, {
+            type: 'line',
+            data: {
+                labels: labels,
+                datasets: [{
+                    label: '자산 (원)',
+                    data: values,
+                    borderColor: m.total_return >= 0 ? '#34d399' : '#f87171',
+                    backgroundColor: m.total_return >= 0 ? 'rgba(52,211,153,0.1)' : 'rgba(248,113,113,0.1)',
+                    fill: true,
+                    tension: 0.3,
+                    pointRadius: 0,
+                    borderWidth: 2
+                }]
+            },
+            options: {
+                responsive: true,
+                plugins: {
+                    legend: { display: false },
+                    tooltip: {
+                        callbacks: {
+                            label: (ctx) => ctx.parsed.y.toLocaleString() + '원'
+                        }
+                    }
+                },
+                scales: {
+                    x: {
+                        ticks: { color: '#9ca3af', maxTicksLimit: 10, font: { size: 10 } },
+                        grid: { color: 'rgba(75,85,99,0.3)' }
+                    },
+                    y: {
+                        ticks: {
+                            color: '#9ca3af',
+                            font: { size: 10 },
+                            callback: (v) => (v / 10000).toFixed(0) + '만'
+                        },
+                        grid: { color: 'rgba(75,85,99,0.3)' }
+                    }
+                }
+            }
+        });
+
+        // 거래 내역
+        const tbody = document.getElementById('trades-body');
+        tbody.innerHTML = '';
+        for (const t of data.trades) {
+            const isBuy = t.type === 'BUY';
+            const pnlStr = t.type === 'SELL' ? `${t.pnl >= 0 ? '+' : ''}${Math.round(t.pnl).toLocaleString()}원` : '-';
+            const pnlClass = t.pnl > 0 ? 'text-green-400' : (t.pnl < 0 ? 'text-red-400' : 'text-gray-400');
+            tbody.innerHTML += `
+                <tr class="border-b border-gray-700/50 hover:bg-gray-700/30">
+                    <td class="py-1.5 px-2">${t.date}</td>
+                    <td class="py-1.5 px-2 text-center font-bold ${isBuy ? 'text-green-400' : 'text-red-400'}">${t.type}</td>
+                    <td class="py-1.5 px-2 text-right">${Math.round(t.price).toLocaleString()}</td>
+                    <td class="py-1.5 px-2 text-right">${t.quantity}</td>
+                    <td class="py-1.5 px-2 text-right">${Math.round(t.amount).toLocaleString()}</td>
+                    <td class="py-1.5 px-2 text-right ${pnlClass}">${pnlStr}</td>
+                    <td class="py-1.5 px-2 text-gray-400">${t.reason}</td>
+                </tr>
+            `;
+        }
+    }
+
+    async function loadHistory() {
+        try {
+            const res = await fetch('/api/backtest/history');
+            const history = await res.json();
+            const tbody = document.getElementById('history-body');
+
+            if (!history.length) {
+                tbody.innerHTML = '<tr><td colspan="8" class="py-4 text-center text-gray-500">실행 이력 없음</td></tr>';
+                return;
+            }
+
+            tbody.innerHTML = '';
+            for (const h of history) {
+                const retClass = h.total_return >= 0 ? 'text-green-400' : 'text-red-400';
+                tbody.innerHTML += `
+                    <tr class="border-b border-gray-700/50 hover:bg-gray-700/30 cursor-pointer" onclick="loadDetail(${h.id})">
+                        <td class="py-1.5 px-2">${h.created_at ? h.created_at.substring(0, 16).replace('T', ' ') : '-'}</td>
+                        <td class="py-1.5 px-2">${h.name || h.symbol}</td>
+                        <td class="py-1.5 px-2 text-center">${h.strategy}</td>
+                        <td class="py-1.5 px-2 text-right ${retClass}">${h.total_return.toFixed(1)}%</td>
+                        <td class="py-1.5 px-2 text-right">${h.win_rate.toFixed(0)}%</td>
+                        <td class="py-1.5 px-2 text-right text-red-400">-${h.mdd.toFixed(1)}%</td>
+                        <td class="py-1.5 px-2 text-right">${h.sharpe_ratio.toFixed(2)}</td>
+                        <td class="py-1.5 px-2 text-center text-gray-400">${h.period}</td>
+                    </tr>
+                `;
+            }
+        } catch (e) {
+            console.error('history load error:', e);
+        }
+    }
+
+    async function loadDetail(id) {
+        try {
+            const res = await fetch(`/api/backtest/${id}`);
+            const detail = await res.json();
+            if (detail.result) {
+                displayResult({
+                    trades: detail.result.trades || [],
+                    equity_curve: detail.result.equity_curve || [],
+                    metrics: detail.result.metrics || {}
+                });
+            }
+        } catch (e) {
+            console.error('detail load error:', e);
+        }
+    }
+</script>
+{% endblock %}

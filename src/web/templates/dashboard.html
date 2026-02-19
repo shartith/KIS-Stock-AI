@@ -1,0 +1,639 @@
+{% extends "layout.html" %}
+
+{% block content %}
+<div class="dash-grid">
+    <!-- ── Row 1: Market Indices Bar ── -->
+    <div class="indices-bar bg-gray-800 rounded-lg p-3 border border-gray-700">
+        <div class="indices-row" id="market-indices">
+            <div class="animate-pulse bg-gray-700 h-10 rounded flex-1"></div>
+        </div>
+    </div>
+
+    <!-- ── Row 2: Country Tabs + Heatmap ── -->
+    <div class="heatmap-section bg-gray-800 rounded-lg border border-gray-700 flex flex-col">
+        <!-- Tab Bar -->
+        <div class="tab-bar">
+            <button class="tab-btn active" data-country="KR">
+                <span class="tab-flag">🇰🇷</span>
+                <span class="tab-label">한국</span>
+                <span class="tab-hours">09:00~15:30</span>
+                <span class="tab-status" id="status-KR"></span>
+            </button>
+            <button class="tab-btn" data-country="JP">
+                <span class="tab-flag">🇯🇵</span>
+                <span class="tab-label">일본</span>
+                <span class="tab-hours">09:00~15:00</span>
+                <span class="tab-status" id="status-JP"></span>
+            </button>
+            <button class="tab-btn" data-country="CN">
+                <span class="tab-flag">🇨🇳</span>
+                <span class="tab-label">중국</span>
+                <span class="tab-hours">10:00~16:00</span>
+                <span class="tab-status" id="status-CN"></span>
+            </button>
+            <button class="tab-btn" data-country="HK">
+                <span class="tab-flag">🇭🇰</span>
+                <span class="tab-label">홍콩</span>
+                <span class="tab-hours">10:00~17:00</span>
+                <span class="tab-status" id="status-HK"></span>
+            </button>
+            <button class="tab-btn" data-country="US">
+                <span class="tab-flag">🇺🇸</span>
+                <span class="tab-label">미국</span>
+                <span class="tab-hours">23:30~06:00</span>
+                <span class="tab-status" id="status-US"></span>
+            </button>
+        </div>
+        <!-- Treemap Area -->
+        <div class="heatmap-treemap" id="heatmap-grid">
+            <div class="heatmap-loading" id="heatmap-loading">
+                <div class="loading-spinner"></div>
+                Loading market data...
+            </div>
+        </div>
+    </div>
+
+    <!-- ── Row 3: AI Logs ── -->
+    <div class="logs-section bg-gray-800 rounded-lg p-3 border border-gray-700">
+        <h2 class="text-xs font-semibold text-gray-500 mb-2 uppercase">AI Trader Live Logs</h2>
+        <div class="overflow-y-auto font-mono text-xs space-y-1 bg-gray-900 p-2 rounded border border-gray-700"
+            style="height:140px" id="ai-logs">
+            <div class="text-gray-500">Connecting to AI Monitor...</div>
+        </div>
+    </div>
+</div>
+
+<style>
+    /* ── Dashboard Grid ── */
+    .dash-grid {
+        display: grid;
+        grid-template-rows: auto 1fr auto;
+        gap: 12px;
+        height: calc(100vh - 90px);
+        min-height: 600px;
+    }
+
+    /* ── Indices Bar ── */
+    .indices-bar {
+        overflow-x: auto;
+    }
+
+    .indices-row {
+        display: flex;
+        gap: 8px;
+        min-width: max-content;
+    }
+
+    .idx-card {
+        display: flex;
+        align-items: center;
+        justify-content: space-between;
+        background: #374151;
+        border-radius: 6px;
+        padding: 6px 14px;
+        min-width: 140px;
+        gap: 12px;
+    }
+
+    .idx-name {
+        font-weight: 700;
+        font-size: 12px;
+        color: #d1d5db;
+        white-space: nowrap;
+    }
+
+    .idx-val {
+        font-weight: 700;
+        font-size: 14px;
+        color: #fff;
+    }
+
+    .idx-chg {
+        font-size: 11px;
+        font-weight: 600;
+    }
+
+    .idx-up {
+        color: #f87171;
+    }
+
+    .idx-dn {
+        color: #60a5fa;
+    }
+
+    /* ── Tab Bar ── */
+    .tab-bar {
+        display: flex;
+        border-bottom: 1px solid #374151;
+        padding: 0 4px;
+        background: #1e2736;
+        border-radius: 8px 8px 0 0;
+        overflow-x: auto;
+    }
+
+    .tab-btn {
+        display: flex;
+        align-items: center;
+        gap: 6px;
+        padding: 10px 16px;
+        border: none;
+        background: transparent;
+        color: #9ca3af;
+        font-size: 13px;
+        font-weight: 500;
+        cursor: pointer;
+        border-bottom: 2px solid transparent;
+        transition: all 0.2s;
+        white-space: nowrap;
+    }
+
+    .tab-btn:hover {
+        color: #e5e7eb;
+        background: rgba(255, 255, 255, 0.04);
+    }
+
+    .tab-btn.active {
+        color: #fff;
+        border-bottom-color: #3b82f6;
+        background: rgba(59, 130, 246, 0.08);
+    }
+
+    .tab-flag {
+        font-size: 18px;
+    }
+
+    .tab-label {
+        font-weight: 700;
+    }
+
+    .tab-hours {
+        font-size: 10px;
+        color: #6b7280;
+    }
+
+    .tab-status {
+        width: 7px;
+        height: 7px;
+        border-radius: 50%;
+        background: #6b7280;
+    }
+
+    .tab-status.open {
+        background: #22c55e;
+        animation: pulse 2s infinite;
+    }
+
+    .tab-status.closed {
+        background: #6b7280;
+    }
+
+    @keyframes pulse {
+
+        0%,
+        100% {
+            opacity: 1;
+        }
+
+        50% {
+            opacity: 0.4;
+        }
+    }
+
+    /* ── Heatmap Treemap ── */
+    .heatmap-section {
+        min-height: 0;
+        overflow: hidden;
+    }
+
+    .heatmap-treemap {
+        flex: 1;
+        position: relative;
+        min-height: 300px;
+        overflow: hidden;
+    }
+
+    .heatmap-loading {
+        position: absolute;
+        top: 50%;
+        left: 50%;
+        transform: translate(-50%, -50%);
+        color: #9ca3af;
+        font-size: 13px;
+        display: flex;
+        align-items: center;
+        gap: 8px;
+    }
+
+    .loading-spinner {
+        width: 16px;
+        height: 16px;
+        border: 2px solid #4b5563;
+        border-top-color: #3b82f6;
+        border-radius: 50%;
+        animation: spin 0.8s linear infinite;
+    }
+
+    @keyframes spin {
+        to {
+            transform: rotate(360deg);
+        }
+    }
+
+    .treemap-cell {
+        position: absolute;
+        overflow: hidden;
+        display: flex;
+        flex-direction: column;
+        justify-content: center;
+        align-items: center;
+        cursor: pointer;
+        transition: filter 0.15s;
+        border: 1px solid rgba(0, 0, 0, 0.35);
+        box-sizing: border-box;
+    }
+
+    .treemap-cell:hover {
+        filter: brightness(1.25);
+        z-index: 10;
+    }
+
+    .treemap-cell .cell-name {
+        font-weight: 700;
+        color: #fff;
+        text-align: center;
+        line-height: 1.15;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.6);
+        overflow: hidden;
+        text-overflow: ellipsis;
+        white-space: nowrap;
+        max-width: 96%;
+    }
+
+    .treemap-cell .cell-price {
+        color: rgba(255, 255, 255, 0.75);
+        text-shadow: 0 1px 2px rgba(0, 0, 0, 0.4);
+    }
+
+    .treemap-cell .cell-change {
+        font-weight: 700;
+        color: #fff;
+        text-shadow: 0 1px 3px rgba(0, 0, 0, 0.5);
+    }
+
+    /* Color gradient — 8 levels */
+    .hm-up-3 {
+        background: #dc2626;
+    }
+
+    .hm-up-2 {
+        background: #b91c1c;
+    }
+
+    .hm-up-1 {
+        background: #991b1b;
+    }
+
+    .hm-up-0 {
+        background: #7f1d1d;
+    }
+
+    .hm-dn-0 {
+        background: #1e3a5f;
+    }
+
+    .hm-dn-1 {
+        background: #1e40af;
+    }
+
+    .hm-dn-2 {
+        background: #1d4ed8;
+    }
+
+    .hm-dn-3 {
+        background: #2563eb;
+    }
+
+    .hm-flat {
+        background: #374151;
+    }
+
+    /* ── Logs ── */
+    .logs-section {
+        flex-shrink: 0;
+    }
+
+    @media (max-width: 768px) {
+        .dash-grid {
+            height: auto;
+        }
+
+        .tab-btn {
+            padding: 8px 10px;
+            font-size: 12px;
+        }
+
+        .tab-hours {
+            display: none;
+        }
+    }
+</style>
+{% endblock %}
+
+{% block scripts %}
+<script>
+    // =============================================
+    // State
+    // =============================================
+    let currentCountry = 'KR';
+    const stocksCache = {};  // country -> { data, ts }
+
+    // =============================================
+    // Squarified Treemap
+    // =============================================
+    function squarify(items, rect) {
+        if (!items.length) return [];
+        const totalArea = rect.w * rect.h;
+        const totalValue = items.reduce((s, i) => s + i.value, 0);
+        if (totalValue <= 0) return [];
+        const normalized = items.map(i => ({
+            ...i, area: (i.value / totalValue) * totalArea
+        }));
+        const result = [];
+        layoutRow(normalized, rect, result);
+        return result;
+    }
+
+    function layoutRow(items, rect, result) {
+        if (!items.length) return;
+        if (items.length === 1) {
+            result.push({ ...items[0], x: rect.x, y: rect.y, w: rect.w, h: rect.h });
+            return;
+        }
+        const shorter = Math.min(rect.w, rect.h);
+        const horizontal = rect.w >= rect.h;
+        let row = [items[0]];
+        let bestRatio = worstRatio(row, shorter);
+        for (let i = 1; i < items.length; i++) {
+            const testRow = [...row, items[i]];
+            const ratio = worstRatio(testRow, shorter);
+            if (ratio <= bestRatio) {
+                row = testRow;
+                bestRatio = ratio;
+            } else break;
+        }
+        const remaining = items.slice(row.length);
+        const rowArea = row.reduce((s, i) => s + i.area, 0);
+        if (horizontal) {
+            const rowLen = rowArea / rect.h;
+            let cy = rect.y;
+            for (const item of row) {
+                const itemH = item.area / rowLen;
+                result.push({ ...item, x: rect.x, y: cy, w: rowLen, h: itemH });
+                cy += itemH;
+            }
+            layoutRow(remaining, { x: rect.x + rowLen, y: rect.y, w: rect.w - rowLen, h: rect.h }, result);
+        } else {
+            const rowLen = rowArea / rect.w;
+            let cx = rect.x;
+            for (const item of row) {
+                const itemW = item.area / rowLen;
+                result.push({ ...item, x: cx, y: rect.y, w: itemW, h: rowLen });
+                cx += itemW;
+            }
+            layoutRow(remaining, { x: rect.x, y: rect.y + rowLen, w: rect.w, h: rect.h - rowLen }, result);
+        }
+    }
+
+    function worstRatio(row, side) {
+        const totalArea = row.reduce((s, i) => s + i.area, 0);
+        const rowLen = totalArea / side;
+        let worst = 0;
+        for (const { area } of row) {
+            const long = Math.max(rowLen, area / rowLen);
+            const short = Math.min(rowLen, area / rowLen);
+            worst = Math.max(worst, long / short);
+        }
+        return worst;
+    }
+
+    // =============================================
+    // Color & Size
+    // =============================================
+    function getHeatmapClass(change) {
+        if (change >= 3) return 'hm-up-3';
+        if (change >= 2) return 'hm-up-2';
+        if (change >= 1) return 'hm-up-1';
+        if (change > 0.05) return 'hm-up-0';
+        if (change <= -3) return 'hm-dn-3';
+        if (change <= -2) return 'hm-dn-2';
+        if (change <= -1) return 'hm-dn-1';
+        if (change < -0.05) return 'hm-dn-0';
+        return 'hm-flat';
+    }
+
+    function getFontSizes(area, totalArea) {
+        const r = area / totalArea;
+        if (r > 0.08) return { name: 15, price: 12, change: 14 };
+        if (r > 0.04) return { name: 13, price: 10, change: 12 };
+        if (r > 0.02) return { name: 11, price: 9, change: 10 };
+        if (r > 0.01) return { name: 10, price: 0, change: 9 };
+        return { name: 8, price: 0, change: 7 };
+    }
+
+    // =============================================
+    // Market Status (개장/폐장)
+    // =============================================
+    function updateMarketStatus() {
+        const now = new Date();
+        const utcH = now.getUTCHours(), utcM = now.getUTCMinutes();
+        const utcMin = utcH * 60 + utcM;
+        // 한국(+9) 09:00~15:30 → UTC 00:00~06:30
+        setStatus('KR', utcMin >= 0 && utcMin < 390);
+        // 일본(+9) 09:00~15:00 → UTC 00:00~06:00
+        setStatus('JP', utcMin >= 0 && utcMin < 360);
+        // 중국(+8) 10:00~16:00 → UTC 02:00~08:00
+        setStatus('CN', utcMin >= 120 && utcMin < 480);
+        // 홍콩(+8) 10:00~17:00 → UTC 02:00~09:00
+        setStatus('HK', utcMin >= 120 && utcMin < 540);
+        // 미국(EST, -5) 09:30~16:00 → UTC 14:30~21:00
+        setStatus('US', utcMin >= 870 && utcMin < 1260);
+    }
+    function setStatus(country, isOpen) {
+        const el = document.getElementById('status-' + country);
+        if (el) {
+            el.className = 'tab-status ' + (isOpen ? 'open' : 'closed');
+        }
+    }
+
+    // =============================================
+    // Tab Handling
+    // =============================================
+    document.querySelectorAll('.tab-btn').forEach(btn => {
+        btn.addEventListener('click', () => {
+            document.querySelectorAll('.tab-btn').forEach(b => b.classList.remove('active'));
+            btn.classList.add('active');
+            currentCountry = btn.dataset.country;
+            renderHeatmap(currentCountry);
+        });
+    });
+
+    // =============================================
+    // Data Fetching
+    // =============================================
+    async function fetchStocks(country) {
+        const now = Date.now();
+        if (stocksCache[country] && (now - stocksCache[country].ts) < 60000) {
+            return stocksCache[country].data;
+        }
+        const res = await fetch(`/api/stocks/top?country=${country}`);
+        const data = await res.json();
+        stocksCache[country] = { data, ts: now };
+        return data;
+    }
+
+    // =============================================
+    // Render Treemap
+    // =============================================
+    async function renderHeatmap(country) {
+        const container = document.getElementById('heatmap-grid');
+        const loading = document.getElementById('heatmap-loading');
+
+        // Show loading
+        container.innerHTML = `<div class="heatmap-loading" id="heatmap-loading">
+            <div class="loading-spinner"></div> Loading ${country} market data...</div>`;
+
+        const stocks = await fetchStocks(country);
+
+        if (!stocks.length) {
+            container.innerHTML = '<div class="heatmap-loading">No data available</div>';
+            return;
+        }
+
+        const rect = container.getBoundingClientRect();
+        const width = rect.width || 800;
+        const height = rect.height || 450;
+
+        stocks.sort((a, b) => (b.market_cap || 10) - (a.market_cap || 10));
+
+        const treemapItems = stocks.map(s => ({ ...s, value: s.market_cap || 10 }));
+        const cells = squarify(treemapItems, { x: 0, y: 0, w: width, h: height });
+        const totalArea = width * height;
+
+        let html = '';
+        for (const cell of cells) {
+            const colorClass = getHeatmapClass(cell.change);
+            const fonts = getFontSizes(cell.w * cell.h, totalArea);
+            const changeStr = cell.change > 0 ? `+${cell.change}%` : `${cell.change}%`;
+            const priceStr = typeof cell.price === 'number'
+                ? cell.price.toLocaleString() : cell.price;
+
+            let content = `<span class="cell-name" style="font-size:${fonts.name}px">${cell.name}</span>`;
+            if (fonts.price > 0 && cell.w > 55 && cell.h > 40) {
+                content += `<span class="cell-price" style="font-size:${fonts.price}px">${priceStr}</span>`;
+            }
+            if (cell.h > 28) {
+                content += `<span class="cell-change" style="font-size:${fonts.change}px">${changeStr}</span>`;
+            }
+
+            html += `<div class="treemap-cell ${colorClass}" 
+                style="left:${cell.x}px;top:${cell.y}px;width:${cell.w}px;height:${cell.h}px;"
+                title="${cell.name} (${cell.code})\n${priceStr}\n${changeStr}\n~${cell.market_cap || '?'}">
+                ${content}</div>`;
+        }
+        container.innerHTML = html;
+    }
+
+    // =============================================
+    // Update Indices
+    // =============================================
+    async function updateIndices() {
+        try {
+            const res = await fetch('/api/market/indices');
+            const indices = await res.json();
+            const html = Object.keys(indices).map(key => {
+                const item = indices[key];
+                const chgClass = item.change > 0 ? 'idx-up' : 'idx-dn';
+                const arrow = item.change > 0 ? '▲' : (item.change < 0 ? '▼' : '');
+                return `<div class="idx-card">
+                    <span class="idx-name">${key}</span>
+                    <div style="text-align:right">
+                        <div class="idx-val">${item.value}</div>
+                        <div class="idx-chg ${chgClass}">${arrow} ${item.change > 0 ? '+' : ''}${item.change}%</div>
+                    </div>
+                </div>`;
+            }).join('');
+            document.getElementById('market-indices').innerHTML = html;
+        } catch (e) { console.error('Indices error', e); }
+    }
+
+    // =============================================
+    // Init
+    // =============================================
+    async function init() {
+        updateMarketStatus();
+        await updateIndices();
+        await renderHeatmap(currentCountry);
+    }
+
+    init();
+    setInterval(() => {
+        updateMarketStatus();
+        updateIndices();
+        renderHeatmap(currentCountry);
+    }, 15000);
+
+    let resizeTimer;
+    window.addEventListener('resize', () => {
+        clearTimeout(resizeTimer);
+        resizeTimer = setTimeout(() => renderHeatmap(currentCountry), 300);
+    });
+    // =============================================
+    // AI Log SSE Stream
+    // =============================================
+    const LOG_COLORS = {
+        SYSTEM: 'text-green-400',
+        INFO: 'text-gray-400',
+        SCAN: 'text-cyan-400',
+        BULL: 'text-red-400',
+        BEAR: 'text-blue-400',
+        ALERT: 'text-orange-400',
+        TOKEN: 'text-yellow-400',
+        WARN: 'text-yellow-500',
+        ERROR: 'text-red-500',
+    };
+
+    function connectLogStream() {
+        const logEl = document.getElementById('ai-logs');
+        const evtSrc = new EventSource('/api/logs/stream');
+        let firstMessage = true;
+
+        evtSrc.onmessage = (event) => {
+            try {
+                const entry = JSON.parse(event.data);
+                if (entry.level === 'ping') return; // keep-alive
+                if (firstMessage) { logEl.innerHTML = ''; firstMessage = false; }
+
+                const colorClass = LOG_COLORS[entry.level] || 'text-gray-400';
+                const div = document.createElement('div');
+                div.className = colorClass;
+                div.textContent = `[${entry.time}] [${entry.level}] ${entry.message}`;
+                logEl.appendChild(div);
+
+                // 최대 200줄 유지
+                while (logEl.children.length > 200) logEl.removeChild(logEl.firstChild);
+                logEl.scrollTop = logEl.scrollHeight;
+            } catch (e) { }
+        };
+
+        evtSrc.onerror = () => {
+            evtSrc.close();
+            const div = document.createElement('div');
+            div.className = 'text-yellow-500';
+            div.textContent = `[${new Date().toLocaleTimeString()}] [WARN] 연결 끊김 — 재연결 중...`;
+            logEl.appendChild(div);
+            setTimeout(connectLogStream, 3000);
+        };
+    }
+    connectLogStream();
+</script>
+{% endblock %}
