@@ -322,7 +322,7 @@ class DatabaseManager:
             session.close()
     
     def set_setting(self, key: str, value: str, category: str = None, description: str = None):
-        """설정값 저장/업데이트"""
+        """설정값 저장/업데이트 및 .env 동기화"""
         session = self.get_session()
         try:
             setting = session.query(AppSettings).filter_by(key=key).first()
@@ -344,11 +344,38 @@ class DatabaseManager:
                 )
                 session.add(setting)
             session.commit()
+            
+            # .env 파일 업데이트 (동기화)
+            self._update_env_file(key, value)
+            
         except Exception as e:
             session.rollback()
             print(f"Settings DB Error: {e}")
         finally:
             session.close()
+
+    def _update_env_file(self, key: str, value: str):
+        """단일 키값으로 .env 파일 갱신"""
+        env_path = os.path.join(BASE_DIR, ".env")
+        try:
+            lines = []
+            key_found = False
+            if os.path.exists(env_path):
+                with open(env_path, "r", encoding="utf-8") as f:
+                    for line in f:
+                        if line.strip().startswith(f"{key}="):
+                            lines.append(f'{key}="{value}"\n')
+                            key_found = True
+                        else:
+                            lines.append(line)
+            
+            if not key_found:
+                lines.append(f'{key}="{value}"\n')
+                
+            with open(env_path, "w", encoding="utf-8") as f:
+                f.writelines(lines)
+        except Exception as e:
+            print(f"⚠️ Failed to update .env for {key}: {e}")
     
     def get_all_settings(self, category: str = None) -> list:
         """전체 설정 조회 (카테고리별 필터 가능)"""
@@ -423,23 +450,84 @@ class DatabaseManager:
         return value[:4] + "*" * (len(value) - 4)
     
     def init_default_settings(self):
-        """기본 설정 초기화 (DB에 없는 항목만 .env에서 로드)"""
+        """기본 설정 초기화 & 양방향 동기화 (.env <-> DB) & 자격증명 파일 마이그레이션"""
         session = self.get_session()
+        env_updated = False
+        
+        # .env 파일 경로
+        env_path = os.path.join(BASE_DIR, ".env")
+        current_env = {}
+        
+        # 1. 현재 .env 로드
+        if os.path.exists(env_path):
+            with open(env_path, "r", encoding="utf-8") as f:
+                for line in f:
+                    if "=" in line and not line.strip().startswith("#"):
+                        key, val = line.strip().split("=", 1)
+                        current_env[key] = val.strip('"').strip("'")
+        
         try:
+            # 2. 양방향 동기화
             for key, meta in DEFAULT_SETTINGS.items():
-                existing = session.query(AppSettings).filter_by(key=key).first()
-                if not existing:
-                    env_val = os.getenv(key, "")
+                db_setting = session.query(AppSettings).filter_by(key=key).first()
+                env_value = os.getenv(key, "")
+                
+                # Case A: DB에는 없고 .env에는 있음 -> DB에 저장
+                if not db_setting and env_value:
+                    print(f"📥 Syncing {key} from .env to DB")
+                    self.set_setting(key, env_value, meta.get("category"), meta.get("description"))
+                
+                # Case B: DB에는 있고 .env에는 없거나 다름 -> .env 업데이트 예약
+                elif db_setting and db_setting.value and db_setting.value != current_env.get(key):
+                    print(f"📤 Syncing {key} from DB to .env")
+                    current_env[key] = db_setting.value
+                    env_updated = True
+                
+                # Case C: 둘 다 없음 -> 기본값으로 DB 생성 (빈 값)
+                elif not db_setting:
                     setting = AppSettings(
                         key=key,
-                        value=env_val,
+                        value="",
                         category=meta.get("category", "general"),
                         description=meta.get("description", ""),
                         is_secret=meta.get("is_secret", 0)
                     )
                     session.add(setting)
+
+            # 3. .env 파일 업데이트 (변경된 경우만)
+            if env_updated:
+                try:
+                    with open(env_path, "w", encoding="utf-8") as f:
+                        for key, val in current_env.items():
+                            f.write(f'{key}="{val}"\n')
+                    print("💾 Updated .env file from DB")
+                except Exception as e:
+                    print(f"⚠️ Failed to update .env: {e}")
+
+            # 4. kis_credentials.txt 마이그레이션 (기존 유지)
+            cred_path = os.path.join(BASE_DIR, "kis_credentials.txt")
+            if os.path.exists(cred_path):
+                print("📦 Migrating kis_credentials.txt to DB...")
+                try:
+                    with open(cred_path, "r", encoding="utf-8") as f:
+                        for line in f:
+                            line = line.strip()
+                            if line.startswith("App Key:"):
+                                val = line.split(":", 1)[1].strip()
+                                self.set_setting("KIS_APP_KEY", val)
+                            elif line.startswith("Secret Key:"):
+                                val = line.split(":", 1)[1].strip()
+                                self.set_setting("KIS_SECRET_KEY", val)
+                    
+                    os.remove(cred_path)
+                    print("✅ Credentials migrated and file deleted.")
+                    # 마이그레이션 후 .env 동기화 재실행 필요할 수 있으나 다음 실행 시 처리됨
+                except Exception as e:
+                    print(f"⚠️ Failed to migrate credentials: {e}")
+
             session.commit()
-            print("✅ 기본 설정 초기화 완료")
+            print("✅ 설정 동기화 및 초기화 완료")
+            
         except Exception as e:
             session.rollback()
             print(f"Settings init error: {e}")
