@@ -19,7 +19,7 @@ CHROMA_DIR.mkdir(exist_ok=True)
 # AI Mode
 AI_MODE = os.getenv("AI_MODE", "local")
 LOCAL_LLM_URL = os.getenv("LOCAL_LLM_URL", "http://host.docker.internal:11434")
-LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "bitnet-3b")
+LOCAL_LLM_MODEL = os.getenv("LOCAL_LLM_MODEL", "qwen2.5:latest")
 LOCAL_LLM_TIMEOUT = int(os.getenv("LOCAL_LLM_TIMEOUT", "120"))
 
 
