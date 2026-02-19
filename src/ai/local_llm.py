@@ -41,7 +41,7 @@ class LocalLLMClient:
                     return model
             except Exception:
                 pass
-        return "qwen2.5:latest"
+        return "qwen3"
 
     def is_available(self) -> bool:
         """서버 가용성 체크"""

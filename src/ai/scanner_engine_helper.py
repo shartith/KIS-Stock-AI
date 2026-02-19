@@ -78,19 +78,30 @@ class ScannerHelper:
                 current_swing += 1
             seen_symbols.add(c.get("symbol"))
 
-        # 유효 후보 풀 분리
-        pool_day = [
-            x for x in affordable_candidates 
-            if x.get("buy_trade_type") == "단타" 
-            and x.get("symbol") not in seen_symbols 
-            and x.get("symbol") not in self.engine._symbol_blacklist
-        ]
-        pool_swing = [
-            x for x in affordable_candidates 
-            if x.get("buy_trade_type") == "스윙" 
-            and x.get("symbol") not in seen_symbols 
-            and x.get("symbol") not in self.engine._symbol_blacklist
-        ]
+        # 유효 후보 풀 분리 (buy_trade_type이 없으면 timeframe 기반 추정, 없으면 기본 스윙)
+        pool_day = []
+        pool_swing = []
+        
+        for x in affordable_candidates:
+            if x.get("symbol") in seen_symbols or x.get("symbol") in self.engine._symbol_blacklist:
+                continue
+                
+            # trade_type 결정 로직
+            t_type = x.get("buy_trade_type")
+            if not t_type:
+                tf = x.get("timeframe", "").lower()
+                if "단기" in tf or "short" in tf or "day" in tf:
+                    t_type = "단타"
+                else:
+                    t_type = "스윙" # 기본값
+            
+            # 임시로 결정된 타입을 항목에 저장 (추후 predict 단계에서 정교화됨)
+            x["buy_trade_type"] = t_type
+            
+            if t_type == "단타":
+                pool_day.append(x)
+            else:
+                pool_swing.append(x)
         
         # 점수순 정렬
         pool_day.sort(key=lambda x: x.get("ai_score", 0), reverse=True)

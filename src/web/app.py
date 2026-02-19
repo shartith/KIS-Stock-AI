@@ -1324,11 +1324,34 @@ async def _weekend_training_scheduler():
 @app.on_event("startup")
 async def startup_event():
     """서버 시작 시 백그라운드 태스크 등록"""
+    # 초기 설정 확인
+    if not collector.kis.is_configured():
+        ai_log("WARN", "⚠️ KIS API 키가 설정되지 않았습니다.")
+        ai_log("WARN", "👉 웹 브라우저에서 'http://localhost:8000/settings' 접속 후 키를 입력해주세요.")
+        # 설정 대기 루프 시작
+        asyncio.create_task(_wait_for_config_and_start())
+    else:
+        # 설정 완료 시 바로 시작
+        asyncio.create_task(_start_background_tasks())
+
+async def _wait_for_config_and_start():
+    """설정이 완료될 때까지 대기 후 시작"""
+    while True:
+        await asyncio.sleep(5) # 5초마다 확인
+        if collector.kis.is_configured():
+            ai_log("SYSTEM", "✅ KIS API 설정 감지됨! 백그라운드 서비스 시작...")
+            asyncio.create_task(_start_background_tasks())
+            break
+
+async def _start_background_tasks():
+    """시장 모니터 및 스캐너 시작"""
     asyncio.create_task(_market_monitor())
-    asyncio.create_task(_weekend_training_scheduler()) # 스케줄러 추가
-    asyncio.create_task(get_scanner().run())  # AI Trading Scanner
+    asyncio.create_task(_weekend_training_scheduler())
+    asyncio.create_task(get_scanner().run())
 
 
 if __name__ == "__main__":
     import uvicorn
-    uvicorn.run(app, host="0.0.0.0", port=8080)
+    # 도커 환경변수 WEB_PORT 사용 또는 기본값 8000
+    port = int(os.getenv("WEB_PORT", 8000))
+    uvicorn.run(app, host="0.0.0.0", port=port)

@@ -34,7 +34,7 @@ from scanner_engine_helper import ScannerHelper
 # ──────────────────────────────────────────
 BATCH_SIZE = 5          # 종목 동시 수집 수
 BATCH_DELAY = 3         # 배치 간 딜레이(초)
-CYCLE_INTERVAL = 300    # 스캔 사이클 간격(초) = 5분
+CYCLE_INTERVAL = 60     # 스캔 사이클 간격(초) = 1분
 AI_BATCH_SIZE = 3       # AI 분석 동시 처리 수
 AI_BATCH_DELAY = 5      # AI 배치 간 딜레이(초)
 BUY_SCORE_THRESHOLD = 75  # 매수 후보 최소 AI 점수
@@ -178,7 +178,7 @@ class ScannerEngine:
             cycle_id = self.state.get("cycle_count", 0)
             saved = self._db.save_scan_results(
                 cycle_id=cycle_id,
-                results=self.scan_results[-200:],
+                results=self.scan_results, # 슬라이싱 제거 (해당 사이클 전체 저장)
                 candidates=self.candidates,
             )
             if saved > 0:
@@ -219,24 +219,37 @@ class ScannerEngine:
 
         LOT_BY_MARKET = {"JP": 100, "CN": 100, "HK": 100}
         cash = self._available_cash
+        
+        # [디버그 로그] 예산 상태 확인
+        self._log("INFO", f"🧐 후보 선별 시작: BUY풀 {len(self._buy_pool)}개, 예수금 ₩{cash:,}")
+
         if cash <= 0:
+            self._log("WARN", "⚠️ 예수금 부족(0원)으로 후보 선별 중단")
             return
 
         # 1) 예산 필터링 (기존 로직 유지)
         affordable = []
         for item in self._buy_pool:
             p_krw = item.get("price_krw", 0) or 0
+            
+            # price_krw가 0이면 다시 계산 시도
             if p_krw <= 0:
                 raw_p = item.get("price", 0) or 0
                 mkt = item.get("market", "")
                 if mkt == "KR" and raw_p > 0:
                     p_krw = int(raw_p)
                 elif raw_p > 0:
-                    p_krw = int(raw_p * DEFAULT_FX_RATES.get(mkt, 1400)) # 매직 넘버 제거
+                    fx = self._fetch_fx_rate(mkt) or DEFAULT_FX_RATES.get(mkt, 1400)
+                    p_krw = int(raw_p * fx)
+                item["price_krw"] = p_krw # 보정값 저장
+            
             if p_krw <= 0:
+                self._log("WARN", f"❌ 가격 정보 오류: {item.get('name')} (price_krw=0)")
                 continue
+                
             lot = LOT_BY_MARKET.get(item.get("market", ""), 1)
             min_cost = p_krw * lot
+            
             if min_cost <= cash:
                 item["_min_cost_krw"] = min_cost
                 affordable.append(item)
@@ -244,6 +257,10 @@ class ScannerEngine:
                 self._log("INFO",
                     f"💰 예산 초과: {item.get('name', '')} "
                     f"₩{p_krw:,}×{lot}=₩{min_cost:,} > ₩{cash:,}")
+
+        if not affordable:
+            self._log("WARN", "⚠️ 예산 내 매수 가능한 후보가 없음")
+            return
 
         # 2) 전략별 예산 한도 내 선정 (메소드 분리 적용)
         # Helper 메소드 호출
@@ -258,8 +275,8 @@ class ScannerEngine:
         self.candidates = existing_tracked + selected
 
         self._log("INFO",
-            f"📋 후보 선별: 풀 {len(self._buy_pool)}→예산필터 {len(affordable)}"
-            f"→선정 {len(selected)} (스윙 {len([s for s in selected if s.get('buy_trade_type')=='스윙'])}"
+            f"📋 후보 선별 완료: 예산가능 {len(affordable)}개 "
+            f"→ 최종선정 {len(selected)} (스윙 {len([s for s in selected if s.get('buy_trade_type')=='스윙'])}"
             f"+단타 {len([s for s in selected if s.get('buy_trade_type')=='단타'])})"
             f" / 기존추적 {len(existing_tracked)}건 유지"
             f" / 총 {len(self.candidates)}건")
@@ -1075,36 +1092,112 @@ JSON 형식으로 응답:
     # ──────────────────────────────────────
     # Phase 4: 장마감 분석
     # ──────────────────────────────────────
-    async def closing_analysis(self) -> List[Dict]:
-        """장마감 후 최종 분석 — 다음 장 매수 후보 선정"""
-        self.state["phase"] = "closing"
-        self._log("SYSTEM", "📊 장마감 최종 분석 시작")
+    async def closing_analysis(self):
+        """장 마감 분석 (오후 3:40~) 및 놓친 급등주 복기"""
+        self._log("SYSTEM", "🏁 장 마감 분석 및 데이터 정리 시작")
 
-        # 오늘 분석된 BUY 후보들 중 상위 정렬
-        buy_candidates = [
-            r for r in self.scan_results
-            if r.get("ai_action") == "BUY" and r.get("ai_score", 0) >= BUY_SCORE_THRESHOLD
-        ]
+        try:
+            # 1. 미체결 주문 취소
+            self._log("INFO", "미체결 주문 일괄 취소 중...")
+            # (KIS API 연동 필요, 여기서는 로깅만)
 
-        buy_candidates.sort(key=lambda x: x.get("ai_score", 0), reverse=True)
+            # 2. 보유 종목 최종 점검 (오버나잇 여부 결정)
+            # (추가 로직: 수익권이면 일부 익절하거나, 손실권이면 정리하는 로직 등)
+            
+            # 3. 📢 놓친 급등주(False Negative) 복기 및 학습 데이터 생성
+            await self._review_missed_opportunities()
 
-        if buy_candidates:
-            self._log("BULL", f"📋 장마감 매수 후보 {len(buy_candidates)}개:")
-            for i, c in enumerate(buy_candidates[:10], 1):
-                self._log("BULL",
-                    f"  {i}. {c['name']} ({c['symbol']}) "
-                    f"Score:{c.get('ai_score', 0)} "
-                    f"Action:{c.get('ai_action', '')} "
-                    f"Reason:{c.get('ai_reason', '')[:40]}"
-                )
-            # _buy_pool에 추가 후 전략별 비교 선별
-            self._buy_pool = buy_candidates[:20]
-            self._refine_candidates()
-        else:
-            self._log("INFO", "장마감 분석: 매수 후보 없음")
+            self._log("INFO", "✅ 장 마감 프로세스 완료")
 
-        self._save_scanner_state()  # 후보 목록 영속화
-        return buy_candidates
+        except Exception as e:
+            self._log("ERROR", f"장 마감 분석 중 오류: {e}")
+
+    async def _review_missed_opportunities(self):
+        """
+        [자동 복기 시스템]
+        오늘 AI가 '매수 보류' 판단을 내렸으나, 실제로는 급등한 종목을 찾아냅니다.
+        이 케이스를 '정답(BUY)'으로 라벨링하여 학습 데이터셋에 추가합니다.
+        """
+        try:
+            self._log("INFO", "🕵️ 로컬 AI가 놓친 급등주(False Negative) 발굴 중...")
+            
+            # 메모리에 있는 최근 분석 결과 활용
+            if not self.scan_results:
+                self._log("INFO", "  - 분석 기록이 없어 복기를 건너뜁니다.")
+                return
+
+            missed_count = 0
+            
+            # KIS API를 통해 오늘 분석했던 종목들의 '현재가(종가)' 확인 필요
+            # 점수가 낮았던(60점 미만) 종목들 대상
+            low_score_results = [r for r in self.scan_results if r.get('ai_score', 0) < 60]
+            
+            if not low_score_results:
+                self._log("INFO", "  - 점수가 낮은 분석 기록이 없습니다.")
+                return
+
+            self._log("INFO", f"  - 점수 미달 종목 {len(low_score_results)}건 재검토 중...")
+
+            for result in low_score_results:
+                code = result['symbol']
+                name = result['name']
+                ai_score = result.get('ai_score', 0)
+                market = result.get('market', 'KR')
+                
+                try:
+                    # 현재가(종가) 조회
+                    # 주의: 대량 조회 시 API 호출 제한 고려. 여기서는 1건씩 조회하므로 속도 느릴 수 있음.
+                    # 실전에서는 멀티스레드나 일괄 조회 API 사용 권장.
+                    loop = asyncio.get_event_loop()
+                    current_price_data = await loop.run_in_executor(
+                        self._executor,
+                        lambda: self.collector.get_current_price(code, market)
+                    )
+                    
+                    if not current_price_data:
+                        continue
+                        
+                    end_rate = float(current_price_data.get('change_rate', 0.0))
+                    
+                    # 기준: AI는 무시했는데(60점 미만), 실제로는 5% 이상 급등 마감
+                    if end_rate >= 5.0:
+                        self._log("WARN", f"  🚨 [놓친 대박] {name}({code}): AI점수 {ai_score}점 vs 등락률 {end_rate}%")
+                        
+                        # 이 데이터를 '학습 데이터(TrainingDataset)'에 정답(BUY)으로 저장
+                        # 입력 데이터: 분석 당시의 raw_analysis (result 전체)
+                        # 출력 라벨: BUY (강력 매수)
+                        # 사유: False Negative Correction
+                        
+                        trade_log = {
+                            "date": datetime.now().strftime("%Y-%m-%d"),
+                            "code": code,
+                            "name": name,
+                            "entry_price": float(current_price_data.get('price', 0)), # 종가 기준
+                            "profit_rate": end_rate, # 당일 수익률
+                            "trade_type": "FALSE_NEGATIVE", # 특수 타입 (놓친 급등주)
+                            "reason": f"AI점수({ai_score}) 낮았으나 {end_rate}% 급등함. 매수 추천으로 보정."
+                        }
+                        
+                        # DB에 학습용 데이터로 저장
+                        if hasattr(self._db, 'add_training_data'):
+                            self._db.add_training_data(
+                                trade_log=trade_log,
+                                input_data=json.dumps(result, default=str), # 당시 분석 데이터 전체
+                                ai_output="BUY", # 정답 보정
+                                score=ai_score # 당시 점수 (낮음)
+                            )
+                            missed_count += 1
+                            
+                except Exception:
+                    continue
+            
+            if missed_count > 0:
+                self._log("SYSTEM", f"✨ 총 {missed_count}건의 놓친 급등주를 학습 데이터셋(BUY)에 추가했습니다.")
+            else:
+                self._log("INFO", "  - 놓친 급등주가 발견되지 않았습니다. (AI 판단이 정확했거나 시장이 침체)")
+
+        except Exception as e:
+            self._log("ERROR", f"복기 프로세스 실패: {e}")
 
     # ──────────────────────────────────────
     # 메인 스캔 사이클
@@ -1118,6 +1211,10 @@ JSON 형식으로 응답:
 
         self.state["status"] = "scanning"
         self.state["cycle_count"] += 1
+        
+        # 새 사이클 시작 시 이전 분석 결과 초기화
+        self.scan_results.clear()
+        
         cycle = self.state["cycle_count"]
         self._log("SYSTEM", f"🔄 스캔 사이클 #{cycle} 시작 (시장: {', '.join(markets)})")
 

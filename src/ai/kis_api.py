@@ -54,6 +54,8 @@ class KISApi:
     # ===================
     # OAuth 토큰 관리
     # ===================
+    
+    _last_error_log_time = 0
 
     @staticmethod
     def _next_8am_kst() -> float:
@@ -89,7 +91,11 @@ class KISApi:
                 pass
 
         if not self.is_configured():
-            print("[KIS API] App Key / Secret Key가 설정되지 않았습니다.")
+            # 로그 스팸 방지 (10분에 한 번만 출력)
+            now = time.time()
+            if now - self._last_error_log_time > 600:
+                print("⚠️ [KIS API] App Key / Secret Key 미설정. 웹 설정(http://localhost:8000/settings)에서 입력해주세요.")
+                self._last_error_log_time = now
             return ""
 
         url = f"{BASE_URL}/oauth2/tokenP"

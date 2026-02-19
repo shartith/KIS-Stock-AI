@@ -1124,7 +1124,7 @@ class DatabaseManager:
     # ==========================
 
     def save_training_data(self, data: dict):
-        """학습 데이터 저장"""
+        """학습 데이터 저장 (기존 메서드)"""
         session = self.get_session()
         try:
             record = TrainingDataset(
@@ -1147,6 +1147,54 @@ class DatabaseManager:
         except Exception as e:
             session.rollback()
             print(f"Training data save error: {e}")
+            return -1
+        finally:
+            session.close()
+
+    def add_training_data(self, trade_log: dict, input_data: str, ai_output: str, score: int):
+        """
+        놓친 급등주(False Negative) 등을 학습 데이터로 추가 (ScannerEngine 연동용)
+        Args:
+            trade_log: {code, name, profit_rate, trade_type, reason, ...}
+            input_data: JSON string (분석 당시의 전체 데이터)
+            ai_output: "BUY" (정답 라벨)
+            score: 당시 점수 (참고용)
+        """
+        import json
+        session = self.get_session()
+        try:
+            # input_data 파싱하여 필요한 정보 추출
+            try:
+                raw_data = json.loads(input_data)
+            except:
+                raw_data = {}
+
+            market = raw_data.get("market", "KR")
+            
+            # 차트 데이터와 지표 분리 (가능하다면)
+            # 현재 ScannerEngine은 전체 result를 json으로 넘기므로, 이를 chart_data 컬럼에 통째로 저장하거나
+            # 구조에 맞게 분리해야 함. 여기서는 통째로 chart_data에 저장하고 indicators는 빈값 처리.
+            
+            record = TrainingDataset(
+                symbol=trade_log.get("code", ""),
+                market=market,
+                trade_type=trade_log.get("trade_type", "FALSE_NEGATIVE"),
+                entry_time=datetime.now(), # 대략적인 시간
+                exit_time=datetime.now(),
+                chart_data=input_data, # 전체 컨텍스트 저장
+                indicators="{}", 
+                ai_reasoning=f"[Correction] {trade_log.get('reason', '')} (Original Score: {score})",
+                result_type="WIN", # 급등했으므로 긍정 사례
+                profit_rate=trade_log.get("profit_rate", 0),
+                hold_duration=0, # 장중 전체
+                is_trained=0
+            )
+            session.add(record)
+            session.commit()
+            return record.id
+        except Exception as e:
+            session.rollback()
+            print(f"Add training data error: {e}")
             return -1
         finally:
             session.close()
