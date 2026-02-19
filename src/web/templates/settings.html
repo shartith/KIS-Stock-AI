@@ -45,6 +45,10 @@
                 <p class="text-sm text-gray-400 mb-3">
                     Google 계정으로 로그인하면 Claude Opus 4.5/4.6, Gemini 3 Pro 등 고급 AI 모델을 사용할 수 있습니다.
                 </p>
+                <div id="ag-oauth-warning" class="hidden mb-3 p-2 bg-red-900/30 border border-red-700 rounded text-xs text-red-300">
+                    ⚠️ Google OAuth Client Secret이 설정되지 않았습니다.<br>
+                    아래 '고급 설정'을 펼쳐서 ID와 Secret을 입력해주세요.
+                </div>
                 <button onclick="antigravityLogin()" id="ag-login-btn"
                     class="w-full bg-gradient-to-r from-purple-600 to-blue-600 hover:from-purple-500 hover:to-blue-500 text-white font-bold py-2.5 px-6 rounded-lg flex items-center justify-center space-x-2 transition-all">
                     <svg class="w-5 h-5" viewBox="0 0 24 24">
@@ -474,7 +478,19 @@
     async function antigravityLogin() {
         const loggedOut = document.getElementById('ag-logged-out');
         const loggingIn = document.getElementById('ag-logging-in');
+        const warning = document.getElementById('ag-oauth-warning');
 
+        // Secret 확인 (간이 검사: 실제로는 서버에서 확인하지만 UI 반응성을 위해)
+        const secretInput = document.getElementById('google-oauth-secret');
+        if (!secretInput.value && !secretInput.placeholder.includes('****')) {
+             warning.classList.remove('hidden');
+             // 고급 설정 펼치기
+             document.querySelector('details').open = true;
+             secretInput.focus();
+             return;
+        }
+
+        warning.classList.add('hidden');
         loggedOut.classList.add('hidden');
         loggingIn.classList.remove('hidden');
 

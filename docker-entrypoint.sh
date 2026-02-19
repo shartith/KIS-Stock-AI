@@ -11,6 +11,15 @@ export PYTHONPATH=$PYTHONPATH:/app/kis-stock-ai:/app/kis-stock-ai/src:/app/kis-s
 export WEB_PORT=${WEB_PORT:-80}
 export APP_PORT=${APP_PORT:-8000}
 
+# Google OAuth Defaults (if not set)
+# Default Client ID is public, but Secret must be provided by user
+if [ -z "$GOOGLE_OAUTH_CLIENT_ID" ]; then
+    export GOOGLE_OAUTH_CLIENT_ID="1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+fi
+# if [ -z "$GOOGLE_OAUTH_CLIENT_SECRET" ]; then
+#     # Secret must be provided via ENV or Web UI
+# fi
+
 echo "📌 Port Configuration:"
 echo "   Web Dashboard : $WEB_PORT"
 echo "   Main Program  : $APP_PORT"

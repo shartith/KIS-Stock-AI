@@ -24,8 +24,8 @@ from database import DatabaseManager
 # ==========================
 # OAuth Configuration (Default)
 # ==========================
-DEFAULT_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
-DEFAULT_CLIENT_SECRET = "" # Secret removed
+DEFAULT_CLIENT_ID = ""
+DEFAULT_CLIENT_SECRET = ""
 
 def get_oauth_config():
     """DB 또는 환경변수에서 OAuth 설정 로드"""
