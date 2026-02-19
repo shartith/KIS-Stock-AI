@@ -25,6 +25,7 @@ from config import (
 import json
 from data_collector import StockDataCollector
 from antigravity_client import AntigravityClient
+from local_llm import LocalLLMClient
 from ta_utils import analyze_candles
 from scanner_engine_helper import ScannerHelper
 
@@ -49,29 +50,6 @@ MARKET_HOURS_KST = {
     "US": {"open": (23, 30), "close": (6, 0)},   # 다음날 새벽 (야간)
 }
 
-# [Step 3] stocks.json에서 종목 로드 (동적 관리)
-def load_country_stocks():
-    try:
-        base_dir = os.path.dirname(os.path.abspath(__file__))
-        with open(os.path.join(base_dir, "stocks.json"), "r", encoding="utf-8") as f:
-            data = json.load(f)
-            # Tuple 형태로 변환 (코드, 이름, 시가총액, [거래소])
-            converted = {}
-            for country, stocks in data.items():
-                stock_list = []
-                for s in stocks:
-                    item = (s["code"], s["name"], s.get("mcap", 10))
-                    if "exchange" in s:
-                        item += (s["exchange"],)
-                    stock_list.append(item)
-                converted[country] = stock_list
-            return converted
-    except Exception as e:
-        print(f"[Scanner] stocks.json 로드 실패: {e}")
-        return {}
-
-COUNTRY_STOCKS = load_country_stocks()
-
 
 # 통화별 Yahoo Finance 환율 심볼 (→ KRW)
 FX_SYMBOLS = {
@@ -91,6 +69,15 @@ class ScannerEngine:
         self._log_fn = log_fn  # ai_log 함수 인젝션
         self._executor = ThreadPoolExecutor(max_workers=6)
         self._helper = ScannerHelper(self) # Helper 초기화
+        
+        # DB 매니저 먼저 초기화 (LocalLLMClient에 전달하기 위해)
+        self._db = DatabaseManager()
+        try:
+            self._vector_store = StockVectorStore()
+        except Exception:
+            self._vector_store = None
+            
+        self.local_llm = LocalLLMClient(db=self._db) # 로컬 LLM 클라이언트
 
         # 상태
         self.state = {
@@ -143,12 +130,13 @@ class ScannerEngine:
         self._global_analysis: Dict = {}            # 글로벌 연동 분석
         self._offmarket_done: bool = False           # 이미 실행 여부
 
-        # ── DB + 벡터 스토어 ──
-        self._db = DatabaseManager()
-        try:
-            self._vector_store = StockVectorStore()
-        except Exception:
-            self._vector_store = None
+        # ── DB + 벡터 스토어 (중복 초기화 제거) ──
+        # self._db = DatabaseManager() (위에서 초기화함)
+        # try:
+        #     self._vector_store = StockVectorStore()
+        # except Exception:
+        #     self._vector_store = None
+        
         self.strategy_store = StrategyStore(db=self._db, vector_store=self._vector_store)
         self.notifier = NotificationService(db=self._db)
         self._load_scanner_state()  # DB에서 이전 스캔 결과 복원
@@ -756,19 +744,17 @@ class ScannerEngine:
         except Exception as e:
             self._log("WARN", f"[{market}] 랭킹 조회 실패: {str(e)[:60]}")
 
-        # 3. 고정 리스트(stocks.json) 병합 (랭킹에 없는 우량주 보완)
-        stock_list = COUNTRY_STOCKS.get(market, [])
+        # 3. 고정 리스트(Watchlist DB) 병합
+        stock_list = self._db.get_watchlist(market=market, active_only=True)
         added_fixed = 0
         
-        for stock_tuple in stock_list:
-            code = stock_tuple[0]
-            name = stock_tuple[1]
-            mcap = stock_tuple[2]
-            exch = stock_tuple[3] if len(stock_tuple) > 3 else None
+        for item in stock_list:
+            code = item["symbol"]
+            name = item["name"]
+            mcap = item.get("mcap", 10)
+            exch = item.get("exchange", "")
             
             if code not in seen_symbols:
-                # 가격 정보가 없으므로 일단 추가하고 나중에 필터링하거나,
-                # 여기서 간단히 mcap 등으로 1차 필터링
                 t = {
                     "symbol": code,
                     "name": name,
@@ -785,7 +771,7 @@ class ScannerEngine:
                 added_fixed += 1
                 
         if added_fixed > 0:
-            self._log("INFO", f"📋 [{market}] 고정 리스트에서 {added_fixed}개 추가")
+            self._log("INFO", f"📋 [{market}] 관심종목 DB에서 {added_fixed}개 추가")
 
         # 4. 잔고 기반 저가주 검색 (미국장 한정, 잔고가 적을 때)
         if market == "US" and max_price_local > 0 and self._available_cash > 0 and len(targets) < 10:
@@ -892,7 +878,7 @@ class ScannerEngine:
     # ──────────────────────────────────────
     # Phase 3: AI 분석 + 매수 판단
     # ──────────────────────────────────────
-    def _build_analysis_prompt(self, stock: Dict, candle_data: Dict) -> str:
+    def _build_analysis_prompt(self, stock: Dict, candle_data: Dict, news: List[Dict]) -> str:
         """AI 분석용 프롬프트 생성"""
         candles = candle_data.get("candles", {})
 
@@ -922,6 +908,12 @@ class ScannerEngine:
         # 캔들 데이터 + 수수료 정보 포함
         candle_text = "\n".join(summaries)
         
+        # 뉴스 정보 포맷팅
+        news_text = "관련 뉴스 없음"
+        if news:
+            news_lines = [f"- {n['title']} ({n['published_at']})" for n in news]
+            news_text = "\n".join(news_lines)
+        
         # 왕복 수수료 예상
         price = stock.get("price", 0)
         market = stock.get("market", "US")
@@ -947,21 +939,28 @@ class ScannerEngine:
 === 차트 데이터 분석 ===
 {candle_text}
 
+=== 최신 뉴스 (심리 분석) ===
+{news_text}
+
 {fee_context}
 
 {strat_context}
 
 === 분석 요청 ===
-위 멀티-타임프레임 데이터와 거래 비용을 종합 분석하여 매수 여부를 판단하세요.
-- 핵심 지침: 예상 수익률이 왕복 수수료를 충분히 상회하는 '기대 수익비'가 높은 구간에서만 BUY를 추천하세요.
-- 전략 준수: 활성 매매 전략이 있는 경우, 해당 조건에 얼마나 부합하는지 비중있게 검토하세요.
+위 데이터(차트, 뉴스, 수수료, 전략)를 종합하여 매수 여부를 판단하세요.
+특히, 뉴스나 시장 분위기(Sentiment)가 기술적 지표와 상충될 경우 어떻게 판단했는지 '사고 과정(reasoning_steps)'에 상세히 기술하세요.
 
 JSON 형식으로 응답:
 {{
   "action": "BUY" | "HOLD" | "AVOID", 
   "score": 0~100, 
   "confidence": 0~100, 
-  "reason": "판단 근거 (전략 부합 여부 포함, 2~3문장)", 
+  "reasoning_steps": [
+    "1. 기술적 분석: ...",
+    "2. 뉴스 분석: ...",
+    "3. 종합 판단: ..."
+  ],
+  "reason": "최종 요약 (1문장)", 
   "target_price": 목표가, 
   "stop_loss": 손절가, 
   "timeframe": "단기|중기|장기",
@@ -969,16 +968,58 @@ JSON 형식으로 응답:
 }}"""
 
     async def analyze_stock(self, stock: Dict, candle_data: Dict) -> Dict:
-        """AI를 이용한 종목 분석"""
-        prompt = self._build_analysis_prompt(stock, candle_data)
-
+        """AI를 이용한 종목 분석 (Local First -> Gemini Fallback)"""
+        # 뉴스 수집 (비동기)
         loop = asyncio.get_event_loop()
+        try:
+            news = await loop.run_in_executor(
+                self._executor,
+                lambda: self.collector.get_news(stock["symbol"], stock["market"])
+            )
+        except Exception:
+            news = []
+
+        prompt = self._build_analysis_prompt(stock, candle_data, news)
+        system_prompt = "한국/미국/일본/중국/홍콩 주식 시장 전문 퀀트 트레이더. CoT(Chain of Thought) 방식으로 단계별 추론."
+
+        # 1차 시도: 로컬 LLM (Ollama)
+        use_local = self._db.get_setting("AI_MODE", "local") == "local"
+        if use_local and self.local_llm.is_available():
+            try:
+                self._log("INFO", f"🧠 로컬 AI 분석 시도: {stock['name']}")
+                result = await loop.run_in_executor(
+                    self._executor,
+                    lambda: self.local_llm.chat(
+                        messages=[
+                            {"role": "system", "content": system_prompt},
+                            {"role": "user", "content": prompt}
+                        ],
+                        json_mode=True
+                    )
+                )
+
+                if result.get("success"):
+                    content = result.get("content", "")
+                    # JSON 파싱 시도 (로컬 모델은 포맷이 불안정할 수 있음)
+                    try:
+                        import re
+                        json_match = re.search(r'\{.*\}', content, re.DOTALL)
+                        if json_match:
+                            parsed = json.loads(json_match.group())
+                            if "action" in parsed and "score" in parsed:
+                                return self._format_analysis_result(stock, candle_data, news, parsed, "Local-LLM")
+                    except Exception:
+                        self._log("WARN", f"로컬 AI 응답 파싱 실패, Gemini로 전환")
+            except Exception as e:
+                self._log("WARN", f"로컬 AI 오류: {e}, Gemini로 전환")
+
+        # 2차 시도 (Fallback): Google Gemini (Antigravity)
         try:
             result = await loop.run_in_executor(
                 self._executor,
                 lambda: self.antigravity._call_ai(
                     prompt,
-                    system_prompt="한국/미국/일본/중국/홍콩 주식 시장 전문 퀀트 트레이더",
+                    system_prompt=system_prompt,
                     json_mode=True
                 )
             )
@@ -986,18 +1027,8 @@ JSON 형식으로 응답:
             if result.get("success"):
                 parsed = self.antigravity._extract_json(result.get("content", ""))
                 if parsed:
-                    return {
-                        **stock,
-                        "ai_action": parsed.get("action", "HOLD"),
-                        "ai_score": parsed.get("score", 0),
-                        "ai_confidence": parsed.get("confidence", 0),
-                        "ai_reason": parsed.get("reason", ""),
-                        "target_price": parsed.get("target_price", 0),
-                        "stop_loss": parsed.get("stop_loss", 0),
-                        "timeframe": parsed.get("timeframe", ""),
-                        "candle_count": candle_data.get("total_candles", 0),
-                        "analyzed_at": datetime.now().strftime("%H:%M:%S"),
-                    }
+                    return self._format_analysis_result(stock, candle_data, news, parsed, "Gemini")
+            
             return {
                 **stock,
                 "ai_action": "ERROR",
@@ -1015,6 +1046,30 @@ JSON 형식으로 응답:
                 "ai_reason": str(e)[:80],
                 "analyzed_at": datetime.now().strftime("%H:%M:%S"),
             }
+
+    def _format_analysis_result(self, stock, candle_data, news, parsed, model_name):
+        """분석 결과 포맷팅 헬퍼"""
+        reasoning = parsed.get("reasoning_steps", [])
+        if isinstance(reasoning, list):
+            reasoning_str = "\n".join(reasoning)
+        else:
+            reasoning_str = str(reasoning)
+
+        return {
+            **stock,
+            "ai_action": parsed.get("action", "HOLD"),
+            "ai_score": parsed.get("score", 0),
+            "ai_confidence": parsed.get("confidence", 0),
+            "ai_reason": parsed.get("reason", ""),
+            "ai_reason_detail": f"[{model_name}] {reasoning_str}", # 모델명 표시
+            "target_price": parsed.get("target_price", 0),
+            "stop_loss": parsed.get("stop_loss", 0),
+            "timeframe": parsed.get("timeframe", ""),
+            "candle_count": candle_data.get("total_candles", 0),
+            "analyzed_at": datetime.now().strftime("%H:%M:%S"),
+            "news_count": len(news),
+            "ai_model": model_name
+        }
 
     # ──────────────────────────────────────
     # Phase 4: 장마감 분석

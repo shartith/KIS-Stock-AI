@@ -122,3 +122,35 @@ class StockDataCollector:
         """보유종목 조회"""
         balance = self.kis.inquire_balance()
         return balance.get("holdings", [])
+
+    def get_news(self, symbol: str, market: str) -> List[Dict]:
+        """종목 관련 최신 뉴스 수집 (Yahoo Finance RSS)"""
+        import requests
+        import xml.etree.ElementTree as ET
+        
+        news_list = []
+        try:
+            # Yahoo Finance RSS URL
+            if market == "KR":
+                ticker = f"{symbol}.KS"  # 코스피 기준 (코스닥은 .KQ 체크 필요하지만 일단 KS 시도)
+            else:
+                ticker = symbol
+
+            url = f"https://feeds.finance.yahoo.com/rss/2.0/headline?s={ticker}&region=US&lang=en-US"
+            
+            resp = requests.get(url, timeout=5)
+            if resp.status_code == 200:
+                root = ET.fromstring(resp.content)
+                for item in root.findall(".//item")[:3]: # 최신 3개만
+                    title = item.find("title").text
+                    link = item.find("link").text
+                    pubDate = item.find("pubDate").text
+                    news_list.append({
+                        "title": title,
+                        "link": link,
+                        "published_at": pubDate
+                    })
+        except Exception as e:
+            print(f"[Collector] News fetch failed for {symbol}: {e}")
+            
+        return news_list

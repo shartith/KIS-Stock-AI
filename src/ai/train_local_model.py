@@ -36,8 +36,12 @@ def train_and_register_ollama(base_model_name = "unsloth/Qwen2.5-7B-Instruct-bnb
 
     # 1. 데이터셋 준비
     builder = DatasetBuilder()
-    data_files = builder.get_all_data_files()
+    data_files, processed_ids = builder.get_all_data_files(new_only=True)
     
+    if not data_files:
+        print("⚠️ No data files found. Skipping training.")
+        return
+
     from datasets import load_dataset
     # 여러 파일을 하나의 데이터셋으로 로드
     dataset = load_dataset("json", data_files=data_files, split="train")
@@ -111,8 +115,13 @@ def train_and_register_ollama(base_model_name = "unsloth/Qwen2.5-7B-Instruct-bnb
     # unsloth는 내부적으로 llama.cpp 변환 기능을 제공함
     model.save_pretrained_gguf("model_gguf", tokenizer, quantization_method = "q4_k_m")
     
-    # 7. Ollama 모델 생성
-    print(f"🐳 Creating Ollama model: {new_model_name}...")
+    # 7. Ollama 모델 생성 (버전 관리)
+    from datetime import datetime
+    version_tag = datetime.now().strftime("%Y%m%d")
+    versioned_model_name = f"{new_model_name}:{version_tag}"
+    latest_model_name = f"{new_model_name}:latest"
+    
+    print(f"🐳 Creating Ollama model: {versioned_model_name}...")
     
     modelfile_content = f"""
 FROM ./model_gguf/{base_model_name.split('/')[-1]}-Q4_K_M.gguf
@@ -129,15 +138,57 @@ PARAMETER stop "<|im_end|>"
         f.write(modelfile_content)
 
     try:
-        run_command(f"ollama create {new_model_name} -f Modelfile")
-        print(f"✅ Ollama model '{new_model_name}' created successfully!")
+        # 버전별 모델 생성
+        run_command(f"ollama create {versioned_model_name} -f Modelfile")
+        print(f"✅ Created versioned model: {versioned_model_name}")
+        
+        # latest 태그 갱신 (복사)
+        run_command(f"ollama cp {versioned_model_name} {latest_model_name}")
+        print(f"✅ Updated latest model: {latest_model_name}")
+        
+        # 구버전 정리 (최신 3개만 유지)
+        manage_old_models(new_model_name)
+        
+        # 8. 학습 완료된 데이터 마킹 (재학습 방지)
+        if processed_ids:
+            builder.mark_processed(processed_ids)
+            print(f"✅ Marked {len(processed_ids)} records as trained.")
+            
     except Exception as e:
         print(f"⚠️ Failed to create Ollama model: {e}")
-        print("You can manually create it using: ollama create qwen-stock-trader -f Modelfile")
+
+def manage_old_models(base_name="qwen-stock-trader", keep_count=3):
+    """오래된 Ollama 모델 버전 삭제"""
+    try:
+        # 모델 목록 조회
+        output = run_command("ollama list")
+        lines = output.strip().split('\n')[1:] # 헤더 제외
+        
+        # 해당 베이스 이름을 가진 모델 필터링 (latest 제외)
+        versions = []
+        for line in lines:
+            parts = line.split()
+            if not parts: continue
+            name = parts[0]
+            if name.startswith(f"{base_name}:") and not name.endswith(":latest"):
+                versions.append(name)
+        
+        # 이름순 정렬 (날짜 태그이므로 문자열 정렬 = 날짜 정렬)
+        versions.sort(reverse=True) # 최신순
+        
+        # keep_count 초과분 삭제
+        if len(versions) > keep_count:
+            to_delete = versions[keep_count:]
+            for model in to_delete:
+                print(f"🗑️ Deleting old model: {model}")
+                run_command(f"ollama rm {model}")
+                
+    except Exception as e:
+        print(f"⚠️ Failed to cleanup old models: {e}")
 
 if __name__ == "__main__":
     try:
         # 베이스 모델을 Qwen2.5로 변경
-        train(base_model_name="unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
+        train_and_register_ollama(base_model_name="unsloth/Qwen2.5-7B-Instruct-bnb-4bit")
     except Exception as e:
         print(f"❌ Training failed: {e}")

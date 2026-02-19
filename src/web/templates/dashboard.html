@@ -53,12 +53,63 @@
         </div>
     </div>
 
-    <!-- ── Row 3: AI Logs ── -->
-    <div class="logs-section bg-gray-800 rounded-lg p-3 border border-gray-700">
-        <h2 class="text-xs font-semibold text-gray-500 mb-2 uppercase">AI Trader Live Logs</h2>
-        <div class="overflow-y-auto font-mono text-xs space-y-1 bg-gray-900 p-2 rounded border border-gray-700"
-            style="height:140px" id="ai-logs">
-            <div class="text-gray-500">Connecting to AI Monitor...</div>
+    <!-- ── Row 3: AI Logs & Candidates ── -->
+    <div class="grid grid-cols-1 md:grid-cols-2 gap-3 h-48 md:h-64">
+        <!-- AI Logs -->
+        <div class="bg-gray-800 rounded-lg p-3 border border-gray-700 flex flex-col">
+            <h2 class="text-xs font-semibold text-gray-500 mb-2 uppercase">AI Trader Live Logs</h2>
+            <div class="flex-1 overflow-y-auto font-mono text-xs space-y-1 bg-gray-900 p-2 rounded border border-gray-700"
+                id="ai-logs">
+                <div class="text-gray-500">Connecting to AI Monitor...</div>
+            </div>
+        </div>
+
+        <!-- AI Candidates (New) -->
+        <div class="bg-gray-800 rounded-lg p-3 border border-gray-700 flex flex-col">
+            <h2 class="text-xs font-semibold text-gray-500 mb-2 uppercase flex justify-between">
+                <span>🎯 Top Candidates</span>
+                <span class="text-blue-400 cursor-pointer hover:underline" onclick="refreshCandidates()">Refresh</span>
+            </h2>
+            <div class="flex-1 overflow-y-auto space-y-2" id="candidates-list">
+                <!-- JS로 채움 -->
+                <div class="text-center text-gray-500 text-xs py-10">데이터 로딩 중...</div>
+            </div>
+        </div>
+    </div>
+</div>
+
+<!-- AI Reasoning Modal -->
+<div id="reasoning-modal" class="fixed inset-0 bg-black bg-opacity-75 hidden flex items-center justify-center z-50">
+    <div class="bg-gray-800 rounded-lg border border-gray-600 w-full max-w-2xl mx-4 shadow-2xl">
+        <div class="flex justify-between items-center p-4 border-b border-gray-700">
+            <h3 class="text-lg font-bold text-white" id="modal-title">AI 분석 상세</h3>
+            <button onclick="closeModal()" class="text-gray-400 hover:text-white">&times;</button>
+        </div>
+        <div class="p-6 overflow-y-auto max-h-[70vh]">
+            <div class="space-y-4">
+                <div>
+                    <div class="text-xs text-gray-500 mb-1">종목</div>
+                    <div class="text-xl font-bold text-white" id="modal-stock"></div>
+                </div>
+                <div class="grid grid-cols-2 gap-4">
+                    <div>
+                        <div class="text-xs text-gray-500 mb-1">AI 판단 / 점수</div>
+                        <div class="text-white"><span id="modal-action" class="font-bold"></span> (<span id="modal-score"></span>점)</div>
+                    </div>
+                    <div>
+                        <div class="text-xs text-gray-500 mb-1">분석 시각</div>
+                        <div class="text-white" id="modal-time"></div>
+                    </div>
+                </div>
+                <div>
+                    <div class="text-xs text-gray-500 mb-1">뉴스 요약</div>
+                    <div class="text-sm text-gray-300 bg-gray-900 p-3 rounded" id="modal-news"></div>
+                </div>
+                <div>
+                    <div class="text-xs text-gray-500 mb-1">AI 사고 과정 (Chain of Thought)</div>
+                    <div class="text-sm text-gray-300 bg-gray-900 p-3 rounded whitespace-pre-wrap leading-relaxed" id="modal-reasoning"></div>
+                </div>
+            </div>
         </div>
     </div>
 </div>
@@ -320,6 +371,22 @@
     /* ── Logs ── */
     .logs-section {
         flex-shrink: 0;
+    }
+    
+    /* ── Scrollbar ── */
+    ::-webkit-scrollbar {
+        width: 6px;
+        height: 6px;
+    }
+    ::-webkit-scrollbar-track {
+        background: #1f2937;
+    }
+    ::-webkit-scrollbar-thumb {
+        background: #4b5563;
+        border-radius: 3px;
+    }
+    ::-webkit-scrollbar-thumb:hover {
+        background: #6b7280;
     }
 
     @media (max-width: 768px) {
@@ -635,5 +702,100 @@
         };
     }
     connectLogStream();
+
+    // =============================================
+    // Candidates & Modal
+    // =============================================
+    let candidatesData = [];
+
+    async function refreshCandidates() {
+        const listEl = document.getElementById('candidates-list');
+        listEl.innerHTML = '<div class="text-center text-gray-500 text-xs py-10">새로고침 중...</div>';
+        
+        try {
+            const res = await fetch('/api/scanner/results?limit=50');
+            const data = await res.json();
+            candidatesData = data.results || [];
+            
+            // BUY이면서 점수가 높은 순으로 정렬
+            const buys = candidatesData.filter(c => c.ai_action === 'BUY').sort((a, b) => b.ai_score - a.ai_score);
+            const others = candidatesData.filter(c => c.ai_action !== 'BUY');
+            const displayList = [...buys, ...others];
+
+            if (displayList.length === 0) {
+                listEl.innerHTML = '<div class="text-center text-gray-500 text-xs py-10">분석된 종목이 없습니다.</div>';
+                return;
+            }
+
+            listEl.innerHTML = displayList.map((c, idx) => {
+                const isBuy = c.ai_action === 'BUY';
+                const scoreColor = c.ai_score >= 80 ? 'text-red-400' : (c.ai_score >= 50 ? 'text-yellow-400' : 'text-gray-400');
+                const actionClass = isBuy ? 'bg-red-900 text-red-300' : 'bg-gray-700 text-gray-400';
+                
+                return `
+                <div class="flex items-center justify-between bg-gray-750 p-2 rounded hover:bg-gray-700 transition cursor-pointer border border-transparent hover:border-gray-600"
+                    onclick="openModal(${idx})">
+                    <div class="flex items-center gap-3">
+                        <span class="text-xs font-bold w-8 ${actionClass} px-1.5 py-0.5 rounded text-center">${c.ai_action}</span>
+                        <div>
+                            <div class="text-sm font-bold text-gray-200">${c.name} <span class="text-xs text-gray-500 font-normal">(${c.symbol})</span></div>
+                            <div class="text-xs text-gray-500">${c.market} • ${c.analyzed_at}</div>
+                        </div>
+                    </div>
+                    <div class="text-right">
+                        <div class="text-sm font-bold ${scoreColor}">${c.ai_score}점</div>
+                        <div class="text-xs text-gray-500">신뢰도 ${c.ai_confidence}%</div>
+                    </div>
+                </div>`;
+            }).join('');
+            
+        } catch (e) {
+            console.error(e);
+            listEl.innerHTML = '<div class="text-center text-red-500 text-xs py-10">데이터 로드 실패</div>';
+        }
+    }
+
+    // 전역 스코프에 노출 (onclick 용)
+    window.openModal = function(idx) {
+        // 인덱스가 아닌 실제 데이터 객체를 찾아야 함 (위에서 정렬했으므로 다시 정렬)
+        const buys = candidatesData.filter(c => c.ai_action === 'BUY').sort((a, b) => b.ai_score - a.ai_score);
+        const others = candidatesData.filter(c => c.ai_action !== 'BUY');
+        const displayList = [...buys, ...others];
+        
+        const c = displayList[idx];
+        if (!c) return;
+
+        document.getElementById('modal-stock').textContent = `${c.name} (${c.symbol})`;
+        document.getElementById('modal-action').textContent = c.ai_action;
+        document.getElementById('modal-action').className = c.ai_action === 'BUY' ? 'font-bold text-red-400' : 'font-bold text-gray-400';
+        document.getElementById('modal-score').textContent = c.ai_score;
+        document.getElementById('modal-time').textContent = c.analyzed_at;
+        
+        // 뉴스 표시 (없으면 메시지)
+        const news = c.news_count > 0 ? `${c.news_count}건의 최신 뉴스 반영됨` : '관련 뉴스 없음';
+        document.getElementById('modal-news').textContent = news; // 상세 뉴스 내용은 현재 API 응답에 포함되지 않음 (필요시 추가)
+
+        // Reasoning (줄바꿈 처리)
+        let reasoning = c.ai_reason_detail || c.ai_reason || "상세 분석 내용이 없습니다.";
+        // 마크다운 스타일 제거 등 포맷팅
+        reasoning = reasoning.replace(/\*\*/g, '').replace(/###/g, '').trim();
+        document.getElementById('modal-reasoning').textContent = reasoning;
+
+        document.getElementById('reasoning-modal').classList.remove('hidden');
+    };
+
+    window.closeModal = function() {
+        document.getElementById('reasoning-modal').classList.add('hidden');
+    };
+
+    // 모달 바깥 클릭 시 닫기
+    document.getElementById('reasoning-modal').addEventListener('click', (e) => {
+        if (e.target === document.getElementById('reasoning-modal')) closeModal();
+    });
+    
+    // 초기 로드 및 주기적 갱신
+    refreshCandidates();
+    setInterval(refreshCandidates, 30000); // 30초마다 갱신
+
 </script>
 {% endblock %}

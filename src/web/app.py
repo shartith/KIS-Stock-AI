@@ -19,11 +19,6 @@ from typing import Optional
 sys.path.append(os.path.dirname(os.path.dirname(os.path.abspath(__file__))))
 from ai.data_collector import StockDataCollector
 from ai.config import (MARKET_INFO, YAHOO_SUFFIX, KOSDAQ_CODES)
-from ai.scanner_engine import load_country_stocks
-
-# 학습 프로세스 관리용 전역 변수
-_training_process = None
-_training_status = {"status": "idle", "message": "", "last_run": ""}
 
 app = FastAPI(title="KIS Stock AI Dashboard")
 
@@ -88,6 +83,8 @@ class SettingsSaveRequest(BaseModel):
     # Antigravity
     antigravity_api_key: Optional[str] = None
     antigravity_model: Optional[str] = None
+    google_oauth_client_id: Optional[str] = None
+    google_oauth_client_secret: Optional[str] = None
     # Discord
     discord_webhook_url: Optional[str] = None
     noti_trade_alerts: Optional[str] = None
@@ -309,12 +306,17 @@ async def get_top_stocks(country: str = "KR"):
     if cache["data"] and (now - cache["timestamp"]) < 60:
         return cache["data"]
 
-    stock_list_raw = COUNTRY_STOCKS[country][:50]
+    # 1. DB Watchlist 조회
+    stock_list_raw = db_manager.get_watchlist(market=country)
     stock_list = []
+    
+    # 2. 랭킹 API (선택적 병합) - 여기서는 Watchlist만 우선 보여주거나, ScannerEngine에서 수집한 랭킹을 DB에 저장했다면 그걸 보여줄 수도 있음.
+    # 현재는 Watchlist(기본 종목)만 보여주는 구조 유지.
+    
     for item in stock_list_raw:
-        code = item[0]
-        name = item[1]
-        mcap = item[2] if len(item) > 2 else 10
+        code = item["symbol"]
+        name = item["name"]
+        mcap = item.get("mcap", 10)
         stock_list.append((code, name, mcap))
 
     stocks = []
@@ -401,6 +403,8 @@ async def save_settings(req: SettingsSaveRequest):
         "kis_acct_stock": "KIS_ACCT_STOCK",
         "antigravity_api_key": "ANTIGRAVITY_API_KEY",
         "antigravity_model": "ANTIGRAVITY_MODEL",
+        "google_oauth_client_id": "GOOGLE_OAUTH_CLIENT_ID",
+        "google_oauth_client_secret": "GOOGLE_OAUTH_CLIENT_SECRET",
         "discord_webhook_url": "DISCORD_WEBHOOK_URL",
         "noti_trade_alerts": "NOTI_TRADE_ALERTS",
         "noti_hourly_report": "NOTI_HOURLY_REPORT",
@@ -1234,10 +1238,64 @@ async def count_training_data():
     except Exception as e:
         return JSONResponse(status_code=500, content={"error": str(e)})
 
+# ==========================
+# 9. 시스템 상태 API (AI 연결 확인)
+# ==========================
+
+@app.get("/api/system/status")
+async def get_system_status():
+    """AI 모델 연결 상태 확인"""
+    status = {
+        "local_ai": False,
+        "antigravity": False,
+        "kis_api": False
+    }
+    
+    # 1. Local AI Check
+    try:
+        scanner = get_scanner()
+        if scanner.local_llm.is_available():
+            status["local_ai"] = True
+    except: pass
+
+    # 2. Antigravity Check
+    try:
+        from antigravity_auth import get_antigravity_auth
+        auth = get_antigravity_auth()
+        if auth.is_authenticated:
+            status["antigravity"] = True
+    except: pass
+
+    # 3. KIS API Check
+    try:
+        if collector.kis.is_configured() and collector.kis.get_access_token():
+            status["kis_api"] = True
+    except: pass
+
+    return status
+
+async def _weekend_training_scheduler():
+    """매주 토요일 오전 9시에 학습 트리거"""
+    while True:
+        now = datetime.now()
+        # 토요일(5)이고 9시 0분 ~ 9시 59분 사이인지 확인
+        if now.weekday() == 5 and now.hour == 9:
+            # 이미 실행 중이 아니면 실행
+            global _training_status
+            if _training_status["status"] != "running":
+                ai_log("SYSTEM", "📅 주말 정기 학습 스케줄러 가동")
+                await start_training_model()
+                # 중복 실행 방지를 위해 1시간 대기
+                await asyncio.sleep(3600)
+        
+        # 10분마다 체크
+        await asyncio.sleep(600)
+
 @app.on_event("startup")
 async def startup_event():
     """서버 시작 시 백그라운드 태스크 등록"""
     asyncio.create_task(_market_monitor())
+    asyncio.create_task(_weekend_training_scheduler()) # 스케줄러 추가
     asyncio.create_task(get_scanner().run())  # AI Trading Scanner
 
 

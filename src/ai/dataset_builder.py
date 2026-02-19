@@ -13,13 +13,15 @@ class DatasetBuilder:
         self.output_dir = os.path.join(os.path.dirname(os.path.abspath(__file__)), "datasets")
         os.makedirs(self.output_dir, exist_ok=True)
 
-    def fetch_raw_data(self, min_profit_rate: float = 0.5):
+    def fetch_raw_data(self, min_profit_rate: float = 0.5, new_only: bool = True):
         """DB에서 유의미한(수익이 난) 매매 데이터 조회"""
         session = self.db.get_session()
         try:
-            # 익절했거나 손절 방어에 성공한 케이스 위주로 학습 (필터링 조건은 조정 가능)
-            # 여기서는 모든 데이터를 가져와서 라벨링(Good/Bad)하는 방식을 사용
-            results = session.query(TrainingDataset).all()
+            query = session.query(TrainingDataset)
+            if new_only:
+                query = query.filter(TrainingDataset.is_trained == 0)
+                
+            results = query.all()
             return results
         finally:
             session.close()
@@ -74,21 +76,29 @@ Provide a trading decision and reasoning.
 
         return f"Action: {action}\nReason: {reason}\nTarget Profit: {record.profit_rate:.1f}%"
 
-    def get_all_data_files(self) -> list:
+    def get_all_data_files(self, new_only: bool = True) -> tuple:
         """datasets 폴더 내의 모든 jsonl 파일 경로 반환 (DB 추출본 포함)"""
         # 1. DB 최신 데이터 추출
-        self.build_jsonl(filename="db_latest.jsonl")
+        path, ids = self.build_jsonl(filename="db_latest.jsonl", new_only=new_only)
         
         files = []
+        if path:
+            files.append(path)
+            
         for f in os.listdir(self.output_dir):
-            if f.endswith(".jsonl"):
+            if f.endswith(".jsonl") and f != "db_latest.jsonl":
                 files.append(os.path.join(self.output_dir, f))
-        return files
+        return files, ids
 
-    def build_jsonl(self, filename="train_data.jsonl"):
+    def build_jsonl(self, filename="train_data.jsonl", new_only: bool = True):
         """DB 데이터를 JSONL로 변환 (기본)"""
-        data = self.fetch_raw_data()
+        data = self.fetch_raw_data(new_only=new_only)
+        if not data:
+            print("⚠️ No new training data found.")
+            return None, []
+            
         output_path = os.path.join(self.output_dir, filename)
+        processed_ids = []
         
         count = 0
         with open(output_path, "w", encoding="utf-8") as f:
@@ -100,11 +110,17 @@ Provide a trading decision and reasoning.
                     "output": self.format_completion(record)
                 }
                 f.write(json.dumps(entry, ensure_ascii=False) + "\n")
+                processed_ids.append(record.id)
                 count += 1
                 
         print(f"✅ DB Dataset exported: {output_path} ({count} records)")
-        return output_path
+        return output_path, processed_ids
+
+    def mark_processed(self, ids: list):
+        """처리된 데이터 학습 완료 표시"""
+        self.db.mark_data_as_trained(ids)
 
 if __name__ == "__main__":
     builder = DatasetBuilder()
-    builder.build_jsonl()
+    path, ids = builder.build_jsonl()
+    # builder.mark_processed(ids) # Uncomment to mark as trained

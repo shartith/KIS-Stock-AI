@@ -63,6 +63,18 @@
 
         <!-- Right Side -->
         <div class="flex items-center space-x-4">
+            <!-- AI Status Indicators -->
+            <div class="flex items-center space-x-3 mr-2" id="ai-status-container">
+                <div class="flex items-center space-x-1" title="Local AI (Ollama)">
+                    <div id="status-local" class="w-2 h-2 rounded-full bg-gray-600"></div>
+                    <span class="text-xs text-gray-400">Local</span>
+                </div>
+                <div class="flex items-center space-x-1" title="Antigravity (Google)">
+                    <div id="status-cloud" class="w-2 h-2 rounded-full bg-gray-600"></div>
+                    <span class="text-xs text-gray-400">Cloud</span>
+                </div>
+            </div>
+
             <!-- Account Balance (Real-time) -->
             <div class="hidden lg:flex space-x-4 text-xs font-mono text-gray-400">
                 <span>주문가능원화 <span id="hdr-cash" class="text-gray-500">--</span></span>
@@ -70,7 +82,7 @@
                 <span>손익 <span id="hdr-pnl" class="text-gray-500">--</span></span>
             </div>
 
-            <!-- Status Indicator -->
+            <!-- System Status -->
             <div class="flex items-center space-x-2 bg-gray-700 px-3 py-1 rounded-full">
                 <div class="w-2 h-2 rounded-full bg-green-500 animate-pulse"></div>
                 <span class="text-xs font-semibold text-green-400">Online</span>
@@ -97,6 +109,31 @@
             const now = new Date();
             document.getElementById('clock').innerText = now.toLocaleTimeString('ko-KR');
         }, 1000);
+
+        // System Status Update
+        async function updateSystemStatus() {
+            try {
+                const res = await fetch('/api/system/status');
+                const data = await res.json();
+                
+                const localEl = document.getElementById('status-local');
+                const cloudEl = document.getElementById('status-cloud');
+                
+                if (data.local_ai) {
+                    localEl.className = 'w-2 h-2 rounded-full bg-green-500 shadow-[0_0_5px_rgba(34,197,94,0.6)]';
+                } else {
+                    localEl.className = 'w-2 h-2 rounded-full bg-red-500';
+                }
+                
+                if (data.antigravity) {
+                    cloudEl.className = 'w-2 h-2 rounded-full bg-blue-500 shadow-[0_0_5px_rgba(59,130,246,0.6)]';
+                } else {
+                    cloudEl.className = 'w-2 h-2 rounded-full bg-gray-600'; // 미연결은 회색
+                }
+            } catch (e) {}
+        }
+        setInterval(updateSystemStatus, 10000); // 10초마다 갱신
+        updateSystemStatus();
 
         // Header Account Balance
         function formatKRW(v) {

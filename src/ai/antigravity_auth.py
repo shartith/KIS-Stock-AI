@@ -15,25 +15,40 @@ from urllib.parse import urlencode, urlparse, parse_qs
 from pathlib import Path
 from typing import Dict, Optional, Tuple
 import requests
+import sys
+
+# 상위 경로 추가 (database.py 접근용)
+sys.path.append(os.path.dirname(os.path.abspath(__file__)))
+from database import DatabaseManager
 
 # ==========================
-# OAuth Configuration
+# OAuth Configuration (Default)
 # ==========================
-OAUTH_CONFIG = {
-    "client_id": os.getenv("GOOGLE_OAUTH_CLIENT_ID", "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"),
-    "client_secret": os.getenv("GOOGLE_OAUTH_CLIENT_SECRET", ""),  # 환경변수에서 로드 (기본값 제거)
-    "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
-    "token_url": "https://oauth2.googleapis.com/token",
-    "userinfo_url": "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
-    "project_url": "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
-    "scopes": [
-        "https://www.googleapis.com/auth/cloud-platform",
-        "https://www.googleapis.com/auth/userinfo.email",
-        "https://www.googleapis.com/auth/userinfo.profile",
-        "https://www.googleapis.com/auth/cclog",
-        "https://www.googleapis.com/auth/experimentsandconfigs",
-    ],
-}
+DEFAULT_CLIENT_ID = "1071006060591-tmhssin2h21lcre235vtolojh4g403ep.apps.googleusercontent.com"
+DEFAULT_CLIENT_SECRET = "" # Secret removed
+
+def get_oauth_config():
+    """DB 또는 환경변수에서 OAuth 설정 로드"""
+    db = DatabaseManager()
+    
+    client_id = db.get_setting("GOOGLE_OAUTH_CLIENT_ID") or os.getenv("GOOGLE_OAUTH_CLIENT_ID") or DEFAULT_CLIENT_ID
+    client_secret = db.get_setting("GOOGLE_OAUTH_CLIENT_SECRET") or os.getenv("GOOGLE_OAUTH_CLIENT_SECRET") or DEFAULT_CLIENT_SECRET
+    
+    return {
+        "client_id": client_id,
+        "client_secret": client_secret,
+        "auth_url": "https://accounts.google.com/o/oauth2/v2/auth",
+        "token_url": "https://oauth2.googleapis.com/token",
+        "userinfo_url": "https://www.googleapis.com/oauth2/v1/userinfo?alt=json",
+        "project_url": "https://cloudcode-pa.googleapis.com/v1internal:loadCodeAssist",
+        "scopes": [
+            "https://www.googleapis.com/auth/cloud-platform",
+            "https://www.googleapis.com/auth/userinfo.email",
+            "https://www.googleapis.com/auth/userinfo.profile",
+            "https://www.googleapis.com/auth/cclog",
+            "https://www.googleapis.com/auth/experimentsandconfigs",
+        ],
+    }
 
 # Antigravity API endpoints (daily 우선)
 ANTIGRAVITY_API_URLS = [
@@ -171,6 +186,10 @@ class AntigravityAuth:
     def start_login(self) -> Tuple[str, int]:
         """OAuth 로그인 시작 — 인증 URL과 콜백 포트 반환"""
         self._oauth_result = None
+        
+        config = get_oauth_config()
+        if not config["client_secret"]:
+             raise ValueError("Google OAuth Client Secret이 설정되지 않았습니다. 설정 페이지에서 입력해주세요.")
 
         # 콜백 포트 선택
         port = CALLBACK_PORT
@@ -187,15 +206,15 @@ class AntigravityAuth:
 
         # 인증 URL 생성
         params = {
-            "client_id": OAUTH_CONFIG["client_id"],
+            "client_id": config["client_id"],
             "redirect_uri": redirect_uri,
             "response_type": "code",
-            "scope": " ".join(OAUTH_CONFIG["scopes"]),
+            "scope": " ".join(config["scopes"]),
             "access_type": "offline",
             "prompt": "consent",
             "state": os.urandom(16).hex(),
         }
-        auth_url = f"{OAUTH_CONFIG['auth_url']}?{urlencode(params)}"
+        auth_url = f"{config['auth_url']}?{urlencode(params)}"
 
         # 콜백 서버 시작 (백그라운드)
         self._start_callback_server(port, redirect_uri, params["state"])
@@ -261,13 +280,15 @@ h1{{font-size:2rem;margin-bottom:1rem}}p{{opacity:.8}}</style>
 
     def _complete_login(self, code: str, redirect_uri: str):
         """인증 코드 → 토큰 교환 + 사용자 정보 획득"""
+        config = get_oauth_config()
+        
         # 1. 토큰 교환
         resp = requests.post(
-            OAUTH_CONFIG["token_url"],
+            config["token_url"],
             data={
                 "code": code,
-                "client_id": OAUTH_CONFIG["client_id"],
-                "client_secret": OAUTH_CONFIG["client_secret"],
+                "client_id": config["client_id"],
+                "client_secret": config["client_secret"],
                 "redirect_uri": redirect_uri,
                 "grant_type": "authorization_code",
             },
@@ -282,7 +303,7 @@ h1{{font-size:2rem;margin-bottom:1rem}}p{{opacity:.8}}</style>
 
         # 2. 사용자 정보
         user_resp = requests.get(
-            OAUTH_CONFIG["userinfo_url"],
+            config["userinfo_url"],
             headers={"Authorization": f"Bearer {self.access_token}"},
             timeout=15,
         )
@@ -293,7 +314,7 @@ h1{{font-size:2rem;margin-bottom:1rem}}p{{opacity:.8}}</style>
         # 3. 프로젝트 ID 획득
         try:
             proj_resp = requests.post(
-                OAUTH_CONFIG["project_url"],
+                config["project_url"],
                 headers={
                     "Authorization": f"Bearer {self.access_token}",
                     "Content-Type": "application/json",
@@ -331,13 +352,15 @@ h1{{font-size:2rem;margin-bottom:1rem}}p{{opacity:.8}}</style>
             # 다른 스레드가 이미 갱신했으면 스킵
             if time.time() < self.token_expires_at - 300:
                 return
+            
+            config = get_oauth_config()
 
             try:
                 resp = requests.post(
-                    OAUTH_CONFIG["token_url"],
+                    config["token_url"],
                     data={
-                        "client_id": OAUTH_CONFIG["client_id"],
-                        "client_secret": OAUTH_CONFIG["client_secret"],
+                        "client_id": config["client_id"],
+                        "client_secret": config["client_secret"],
                         "refresh_token": self.refresh_token,
                         "grant_type": "refresh_token",
                     },

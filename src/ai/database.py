@@ -90,7 +90,21 @@ class TrainingDataset(Base):
     result_type = Column(String(10))         # WIN / LOSS
     profit_rate = Column(Float)              # 수익률 %
     hold_duration = Column(Integer)          # 보유 시간 (분)
+    is_trained = Column(Integer, default=0)  # 0=미학습, 1=학습완료
     
+    created_at = Column(DateTime, default=datetime.now)
+
+class Watchlist(Base):
+    """관심 종목 (기존 stocks.json 대체)"""
+    __tablename__ = 'watchlists'
+
+    id = Column(Integer, primary_key=True, autoincrement=True)
+    symbol = Column(String(20), index=True)
+    name = Column(String(100))
+    market = Column(String(10), index=True) # KR, US, ...
+    exchange = Column(String(10))           # NASD, NYSE, ...
+    mcap = Column(Float, default=0)         # 시가총액 (참고용)
+    is_active = Column(Boolean, default=True)
     created_at = Column(DateTime, default=datetime.now)
 
 class AppSettings(Base):
@@ -203,6 +217,8 @@ DEFAULT_SETTINGS = {
     # Antigravity (Google AI)
     "ANTIGRAVITY_API_KEY": {"category": "ai", "description": "Google AI API Key", "is_secret": 1},
     "ANTIGRAVITY_MODEL": {"category": "ai", "description": "Antigravity 모델명"},
+    "GOOGLE_OAUTH_CLIENT_ID": {"category": "ai", "description": "Google OAuth Client ID", "is_secret": 0},
+    "GOOGLE_OAUTH_CLIENT_SECRET": {"category": "ai", "description": "Google OAuth Client Secret", "is_secret": 1},
     # Discord
     "DISCORD_WEBHOOK_URL": {"category": "notification", "description": "Discord Webhook URL", "is_secret": 0},
     "NOTI_TRADE_ALERTS": {"category": "notification", "description": "매매 알림 활성화", "is_secret": 0},
@@ -909,6 +925,103 @@ class DatabaseManager:
         finally:
             session.close()
 
+    # ==========================
+    # 관심 종목 관리 (Watchlist)
+    # ==========================
+    
+    def init_default_watchlist(self):
+        """stocks.json 파일이 있다면 DB로 마이그레이션 후 파일 삭제"""
+        json_path = os.path.join(os.path.dirname(os.path.abspath(__file__)), "stocks.json")
+        if not os.path.exists(json_path):
+            return
+
+        print("📦 Migrating stocks.json to DB...")
+        session = self.get_session()
+        try:
+            # 기존 데이터 확인 (이미 있으면 스킵할지, 덮어쓸지 결정. 여기선 비어있을 때만)
+            if session.query(Watchlist).count() > 0:
+                print("⚠️ Watchlist table not empty. Skipping migration.")
+                return
+
+            with open(json_path, "r", encoding="utf-8") as f:
+                data = _json.load(f)
+            
+            count = 0
+            for market, stocks in data.items():
+                for s in stocks:
+                    w = Watchlist(
+                        symbol=s.get("code", ""),
+                        name=s.get("name", ""),
+                        market=market,
+                        exchange=s.get("exchange", ""),
+                        mcap=s.get("mcap", 0),
+                        is_active=True
+                    )
+                    session.add(w)
+                    count += 1
+            session.commit()
+            print(f"✅ Migrated {count} stocks to DB.")
+            
+            # 파일 삭제는 안전을 위해 수동으로 하거나, 여기서 수행
+            # os.remove(json_path) 
+            
+        except Exception as e:
+            session.rollback()
+            print(f"Migration error: {e}")
+        finally:
+            session.close()
+
+    def get_watchlist(self, market: str = None, active_only: bool = True) -> list:
+        """관심 종목 조회"""
+        session = self.get_session()
+        try:
+            query = session.query(Watchlist)
+            if market:
+                query = query.filter_by(market=market)
+            if active_only:
+                query = query.filter_by(is_active=True)
+            results = query.all()
+            
+            # ScannerEngine에서 사용하는 포맷 (tuple)으로 변환하지 않고 dict 리스트 반환
+            # (ScannerEngine 쪽에서 처리)
+            return [
+                {
+                    "symbol": r.symbol,
+                    "name": r.name,
+                    "market": r.market,
+                    "exchange": r.exchange,
+                    "mcap": r.mcap
+                }
+                for r in results
+            ]
+        finally:
+            session.close()
+            
+    def add_watchlist_item(self, item: dict):
+        """관심 종목 추가"""
+        session = self.get_session()
+        try:
+            # 중복 체크
+            existing = session.query(Watchlist).filter_by(
+                symbol=item.get("symbol"), market=item.get("market")
+            ).first()
+            if existing:
+                return # 이미 존재
+                
+            w = Watchlist(
+                symbol=item.get("symbol"),
+                name=item.get("name"),
+                market=item.get("market"),
+                exchange=item.get("exchange"),
+                mcap=item.get("mcap", 0),
+                is_active=True
+            )
+            session.add(w)
+            session.commit()
+        except Exception:
+            session.rollback()
+        finally:
+            session.close()
 
     # ==========================
     # 학습 데이터 (TrainingDataset)
@@ -930,6 +1043,7 @@ class DatabaseManager:
                 result_type=data.get("result_type", "HOLD"),
                 profit_rate=data.get("profit_rate", 0),
                 hold_duration=data.get("hold_duration", 0),
+                is_trained=0  # 기본값 미학습
             )
             session.add(record)
             session.commit()
@@ -941,9 +1055,25 @@ class DatabaseManager:
         finally:
             session.close()
 
+    def mark_data_as_trained(self, ids: list):
+        """데이터 학습 완료 처리"""
+        if not ids: return
+        session = self.get_session()
+        try:
+            session.query(TrainingDataset)\
+                .filter(TrainingDataset.id.in_(ids))\
+                .update({TrainingDataset.is_trained: 1}, synchronize_session=False)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            print(f"Mark trained error: {e}")
+        finally:
+            session.close()
+
 if __name__ == "__main__":
     db = DatabaseManager()
     db.init_default_settings()
+    db.init_default_watchlist() # 마이그레이션 실행
     print(f"✅ Database initialized at {DB_PATH}")
     
     # 설정 확인
@@ -951,4 +1081,3 @@ if __name__ == "__main__":
     for key, info in settings.items():
         status = "✅" if info["has_value"] else "❌"
         print(f"  {status} {key}: {info['value'] or '(미설정)'}")
-

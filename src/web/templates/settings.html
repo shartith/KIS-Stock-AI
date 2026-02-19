@@ -119,6 +119,11 @@
                             <option value="gemini-1.5-pro" {% if settings.ANTIGRAVITY_MODEL.value=='gemini-1.5-pro'
                                 %}selected{% endif %}>gemini-1.5-pro</option>
                         </select>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">Google OAuth Client Secret</label>
+                        <input type="password" id="google-oauth-secret"
+                            placeholder="{{ settings.GOOGLE_OAUTH_CLIENT_SECRET.value if settings.GOOGLE_OAUTH_CLIENT_SECRET.has_value else '미설정' }}"
+                            class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
                     </div>
                 </div>
             </details>
@@ -324,6 +329,8 @@
             kis_acct_stock: document.getElementById('kis-acct-stock').value || null,
             antigravity_api_key: document.getElementById('antigravity-api-key').value || null,
             antigravity_model: document.getElementById('antigravity-model').value || null,
+            google_oauth_client_id: document.getElementById('google-oauth-client-id').value || null,
+            google_oauth_client_secret: document.getElementById('google-oauth-secret').value || null,
             discord_webhook_url: document.getElementById('discord-webhook').value || null,
             noti_trade_alerts: document.getElementById('noti-trade').checked ? '1' : '0',
             noti_hourly_report: document.getElementById('noti-report').checked ? '1' : '0',
