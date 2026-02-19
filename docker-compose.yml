@@ -14,7 +14,9 @@ version: '3.8'
 
 services:
   kis-stock-ai:
-    build: .
+    # build: .  # 로컬 빌드 대신 Docker Hub 이미지 사용
+    image: shartith0106/kis-stock-ai:latest
+    pull_policy: always  # 항상 최신 이미지 확인
     container_name: kis-stock-ai
     restart: unless-stopped
     ports:

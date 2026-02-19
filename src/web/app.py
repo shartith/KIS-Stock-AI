@@ -345,90 +345,61 @@ _stocks_cache_by_country = {}
 @app.get("/api/stocks/top")
 async def get_top_stocks(country: str = "KR"):
     import time as _time
-    import requests as req
     now = _time.time()
 
     country = country.upper()
-    if country not in COUNTRY_STOCKS:
-        return []
+    if country not in COUNTRY_STOCKS: # COUNTRY_STOCKS는 이제 MARKET_INFO 키값만 가짐
+        if country not in MARKET_INFO: return []
 
-    # 국가별 캐시
+    # 국가별 캐시 (60초 유효)
     cache = _stocks_cache_by_country.get(country, {"data": None, "timestamp": 0})
     if cache["data"] and (now - cache["timestamp"]) < 60:
         return cache["data"]
 
-    # 1. DB Watchlist 조회
-    stock_list_raw = db_manager.get_watchlist(market=country)
-    stock_list = []
-    
-    # 2. 랭킹 API (선택적 병합) - 여기서는 Watchlist만 우선 보여주거나, ScannerEngine에서 수집한 랭킹을 DB에 저장했다면 그걸 보여줄 수도 있음.
-    # 현재는 Watchlist(기본 종목)만 보여주는 구조 유지.
-    
-    for item in stock_list_raw:
-        code = item["symbol"]
-        name = item["name"]
-        mcap = item.get("mcap", 10)
-        stock_list.append((code, name, mcap))
-
     stocks = []
-    suffix_fn = YAHOO_SUFFIX.get(country, lambda c: "")
+    
+    # 1. 실시간 랭킹 수집 (KIS or Yahoo)
+    try:
+        # KIS API (KR) 또는 Yahoo Screener (US)
+        rankings = await asyncio.get_event_loop().run_in_executor(
+            executor, 
+            lambda: collector.get_market_rankings(country, top_n=50)
+        )
+        
+        if rankings:
+            for r in rankings:
+                stocks.append({
+                    "name": r["name"],
+                    "code": r["symbol"],
+                    "price": r["price"],
+                    "change": r["change_rate"],
+                    "volume": r["volume"],
+                    "market_cap": r.get("volume", 0) * r.get("price", 0) # 시총 대용으로 거래대금 사용 (히트맵 크기용)
+                })
+    except Exception as e:
+        print(f"[API] Ranking fetch failed: {e}")
 
-    # 한국: KIS API 우선
-    if country == "KR" and collector.kis.is_configured():
-        for code, name, mcap in stock_list:
-            try:
-                price = collector.get_current_price(code, market="KR")
-                if price and price.get("price", 0) > 0:
-                    stocks.append({
-                        "name": name, "code": code,
-                        "price": price.get("price", 0),
-                        "change": price.get("change_rate", 0),
-                        "volume": price.get("volume", 0),
-                        "market_cap": mcap
-                    })
-            except Exception:
-                pass
-
-    # Yahoo Finance (KIS 실패 시 한국 fallback, 또는 해외 주식)
+    # 2. 랭킹 수집 실패 시 or 추가 데이터 필요 시: DB Watchlist (백업)
     if not stocks:
-        from concurrent.futures import ThreadPoolExecutor, as_completed
+        stock_list_raw = db_manager.get_watchlist(market=country)
+        # Watchlist는 가격 정보가 없으므로 실시간 조회 필요 (병렬)
+        # 하지만 여기서는 히트맵이 비어있는 것보다 나으므로 목록이라도 표시하거나
+        # scanner_engine이 수집한 최신 시세가 있다면 DB(market_data)에서 가져오는 것이 좋음.
+        # 현재는 간단히 빈 값으로라도 표시.
+        for item in stock_list_raw:
+             stocks.append({
+                "name": item["name"],
+                "code": item["symbol"],
+                "price": 0,
+                "change": 0,
+                "volume": 0,
+                "market_cap": item.get("mcap", 10)
+            })
 
-        def _fetch_yahoo(code, name, mcap):
-            """Yahoo Finance 단일 종목 조회 (병렬 실행용)"""
-            try:
-                suffix = suffix_fn(code)
-                symbol = f"{code}{suffix}"
-                url = f"https://query1.finance.yahoo.com/v8/finance/chart/{symbol}?range=1d&interval=1d"
-                headers = {"User-Agent": "Mozilla/5.0"}
-                resp = req.get(url, headers=headers, timeout=5)
-                if resp.status_code == 200:
-                    data = resp.json()
-                    result = data["chart"]["result"][0]
-                    meta = result["meta"]
-                    price = meta.get("regularMarketPrice", 0)
-                    prev_close = meta.get("chartPreviousClose") or meta.get("previousClose") or price
-                    change = round(((price - prev_close) / prev_close) * 100, 2) if prev_close else 0
-                    volume = meta.get("regularMarketVolume", 0)
-                    return {
-                        "name": name, "code": code,
-                        "price": round(price, 2) if country in ("US", "HK") else int(price),
-                        "change": change,
-                        "volume": volume,
-                        "market_cap": mcap
-                    }
-            except Exception:
-                pass
-            return None
-
-        with ThreadPoolExecutor(max_workers=20) as pool:
-            futures = {pool.submit(_fetch_yahoo, code, name, mcap): code for code, name, mcap in stock_list}
-            for future in as_completed(futures):
-                result = future.result()
-                if result:
-                    stocks.append(result)
-
+    # 캐시 갱신
     if stocks:
         _stocks_cache_by_country[country] = {"data": stocks, "timestamp": now}
+        
     return stocks
 
 @app.get("/api/market/info")

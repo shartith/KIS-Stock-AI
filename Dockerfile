@@ -1,7 +1,7 @@
 # ============================================
 # KIS-Stock-AI All-in-One Dockerfile
 # ============================================
-# 베이스: kis-trade-mcp (Python 3.13 + uv + KIS MCP Server)
+# 베이스: Python 3.10 (Slim)
 #
 # 포트 구성:
 #   80   — 웹 대시보드 (FastAPI/Uvicorn)
@@ -10,7 +10,7 @@
 #   8002 — Local AI (llama.cpp / BitNet)
 # ============================================
 
-FROM kis-trade-mcp:latest
+FROM python:3.10-slim
 
 # ==========================
 # 1. System Dependencies
@@ -51,14 +51,17 @@ WORKDIR /app/kis-stock-ai
 
 # Python Dependencies
 COPY requirements.txt .
-RUN pip install --break-system-packages --no-cache-dir \
+# pip 업그레이드 및 패키지 설치
+RUN pip install --upgrade pip && \
+    pip install --no-cache-dir \
     -r requirements.txt \
     fastapi \
     uvicorn \
     jinja2 \
     websockets \
     python-multipart \
-    google-generativeai
+    google-generativeai \
+    unsloth  # 학습용 (선택적)
 
 # Copy source code
 COPY . .

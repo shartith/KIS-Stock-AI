@@ -1,0 +1,45 @@
+#!/bin/bash
+
+# 설정
+DOCKER_ID="shartith0106"
+IMAGE_NAME="kis-stock-ai"
+TAG="latest"
+FULL_IMAGE_NAME="$DOCKER_ID/$IMAGE_NAME:$TAG"
+
+echo "🚀 Docker 이미지 빌드 및 배포 시작..."
+echo "Target: $FULL_IMAGE_NAME"
+
+# 프로젝트 루트로 이동 (스크립트가 어디서 실행되든 루트 기준으로 동작)
+SCRIPT_DIR="$( cd "$( dirname "${BASH_SOURCE[0]}" )" && pwd )"
+PROJECT_ROOT="$(dirname "$SCRIPT_DIR")"
+cd "$PROJECT_ROOT"
+
+echo "📂 작업 디렉토리: $(pwd)"
+
+# 1. 로그인 확인
+if ! docker info > /dev/null 2>&1; then
+    echo "❌ Docker가 실행 중이지 않거나 권한이 없습니다."
+    exit 1
+fi
+
+# 2. 멀티 플랫폼 빌드 (가능한 경우)
+# Mac(M1/M2)에서 Linux 서버(amd64)로 배포하려면 buildx 사용 권장
+if docker buildx version > /dev/null 2>&1; then
+    echo "🏗️ Buildx를 사용하여 멀티 플랫폼(amd64, arm64) 빌드 중..."
+    docker buildx build --platform linux/amd64,linux/arm64 -t $FULL_IMAGE_NAME --push .
+else
+    echo "⚠️ Buildx를 찾을 수 없습니다. 기본 빌드를 수행합니다 (현재 아키텍처)."
+    echo "🏗️ 이미지 빌드 중..."
+    docker build -t $FULL_IMAGE_NAME .
+    
+    echo "⬆️ Docker Hub로 푸시 중..."
+    docker push $FULL_IMAGE_NAME
+fi
+
+if [ $? -eq 0 ]; then
+    echo "✅ 배포 완료! ($FULL_IMAGE_NAME)"
+    echo "👉 서버에서 실행: docker pull $FULL_IMAGE_NAME && docker-compose up -d"
+else
+    echo "❌ 배포 실패"
+    exit 1
+fi

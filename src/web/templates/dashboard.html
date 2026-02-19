@@ -371,6 +371,23 @@
     /* ── Logs ── */
     .logs-section {
         flex-shrink: 0;
+        min-height: 200px;
+        max-height: 200px;
+        display: flex;
+        flex-direction: column;
+    }
+    
+    #ai-logs {
+        overflow-y: auto;
+        flex: 1;
+        min-height: 0; /* 중요: flex 자식의 overflow 동작을 위함 */
+    }
+
+    /* ── Candidates List ── */
+    #candidates-list {
+        overflow-y: auto;
+        max-height: 200px; /* 명시적 높이 제한 */
+        min-height: 0;
     }
     
     /* ── Scrollbar ── */
