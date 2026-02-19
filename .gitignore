@@ -34,8 +34,7 @@ MANIFEST
 # Database
 *.db
 *.sqlite3
-data/kis_stock.db
-data/chroma_db/
+data/
 
 # Logs
 logs/
@@ -56,4 +55,4 @@ kis_token.json
 
 # Docker
 docker-compose.override.yml
-deploy/*.tar.gz
+deploy/
