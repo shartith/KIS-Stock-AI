@@ -5,7 +5,7 @@ import asyncio
 from datetime import datetime
 from typing import Dict, List, Optional
 from antigravity_client import AntigravityClient
-from config import HARD_STOP_LOSS_PERCENT, TRAILING_STOP_CONFIG
+from config import HARD_STOP_LOSS_PERCENT, TRAILING_STOP_CONFIG, TIME_BASED_ROI
 
 class ScannerHelper:
     """ScannerEngine의 보조 메서드 집합"""
@@ -205,6 +205,45 @@ class ScannerHelper:
                      await self._trigger_sell(candidate, market, live_price, "TRAILING_STOP", 
                                             f"최고가({current_high}) 대비 {drop_from_high:.2f}% 하락 (익절)")
                      return True
+
+            # (3) Time Based ROI (시간차 익절)
+            # 보유 시간(분) 계산
+            filled_at_str = candidate.get("filled_at") # 매수 체결 시간
+            if filled_at_str:
+                try:
+                    # filled_at 형식이 HH:MM:SS 라고 가정 (오늘 날짜 기준)
+                    now = datetime.now()
+                    filled_at = datetime.strptime(filled_at_str, "%H:%M:%S").replace(
+                        year=now.year, month=now.month, day=now.day
+                    )
+                    
+                    # 만약 체결 시간이 현재 시간보다 미래라면(자정 넘어감 등) 하루 뺌
+                    if filled_at > now:
+                        filled_at -= timedelta(days=1)
+                        
+                    elapsed_min = (now - filled_at).total_seconds() / 60
+                    
+                    # 설정된 ROI 기준 확인
+                    # TIME_BASED_ROI = {30: 5.0, 60: 3.0, ...} (시간: 목표%)
+                    # 시간이 적게 지난 순서대로 정렬하여 체크
+                    for time_limit, target_roi in sorted(TIME_BASED_ROI.items()):
+                        if elapsed_min <= time_limit:
+                            if live_change >= target_roi:
+                                await self._trigger_sell(candidate, market, live_price, "TIME_ROI", 
+                                                    f"보유 {int(elapsed_min)}분: 목표 {target_roi}% 달성 ({live_change}%)")
+                                return True
+                            break # 해당 시간 구간에 해당하므로 더 긴 시간 기준은 체크 불필요
+                        
+                    # 설정된 최대 시간(마지막 키)을 넘긴 경우, 마지막 기준 적용
+                    max_time = max(TIME_BASED_ROI.keys())
+                    min_roi = TIME_BASED_ROI[max_time]
+                    if elapsed_min > max_time and live_change >= min_roi:
+                         await self._trigger_sell(candidate, market, live_price, "TIME_ROI", 
+                                            f"보유 {int(elapsed_min)}분(장기): 최소목표 {min_roi}% 달성 ({live_change}%)")
+                         return True
+                         
+                except Exception as e:
+                    self.engine._log("WARN", f"ROI 시간 계산 오류 ({symbol}): {e}")
 
             return True
 

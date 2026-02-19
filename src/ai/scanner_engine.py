@@ -22,9 +22,6 @@ from config import (
     MARKET_INFO, YAHOO_SUFFIX, KOSDAQ_CODES,
     HARD_STOP_LOSS_PERCENT, DEFAULT_FX_RATES
 )
-import json
-from data_collector import StockDataCollector
-from antigravity_client import AntigravityClient
 from local_llm import LocalLLMClient
 from ta_utils import analyze_candles
 from scanner_engine_helper import ScannerHelper
@@ -477,10 +474,13 @@ class ScannerEngine:
         if market == "KR":
             return 1.0
 
-        # 캐시 확인 (1시간 유효)
-        cached = self._fx_cache.get(market)
-        if cached and (time.time() - cached["updated_at"]) < 3600:
-            return cached["rate"]
+        # DB 캐시 확인 (1시간 유효)
+        cached_data = self._db.get_cache(f"FX_{market}")
+        if cached_data:
+            if (time.time() - cached_data.get("updated_at", 0)) < 3600:
+                return cached_data["rate"]
+            else:
+                self._log("WARN", f"환율 캐시 만료 [{market}], 재조회 시도")
 
         symbol = FX_SYMBOLS.get(market)
         if not symbol:
@@ -489,8 +489,6 @@ class ScannerEngine:
         # KIS API를 통한 환율 조회 시도 (1순위) - 더 정확함
         try:
             # 여기서는 예시로 남겨두지만, 실제 KIS API에 환율 조회 기능이 있다면 그것을 우선 사용하는 것이 좋음.
-            # 현재 구현된 KISApi에는 명시적인 환율 조회 메서드가 없으므로 Yahoo Finance 유지하되, 
-            # 실패 시 하드코딩된 값보다는 이전 캐시값이나 DB 저장값을 활용하는 로직 추가 가능.
             pass 
         except Exception:
             pass
@@ -507,16 +505,17 @@ class ScannerEngine:
                     valid_closes = [c for c in close if c is not None]
                     if valid_closes:
                         rate = valid_closes[-1]
-                        self._fx_cache[market] = {"rate": rate, "updated_at": time.time()}
+                        # DB 캐시 업데이트
+                        self._db.set_cache(f"FX_{market}", {"rate": rate, "updated_at": time.time()})
                         self._log("INFO", f"💱 환율 [{market}→KRW]: {rate:,.2f}")
                         return rate
         except Exception as e:
             self._log("WARN", f"환율 조회 실패 [{market}]: {str(e)[:40]}")
 
         # 조회 실패 시, 기존 캐시가 있다면 만료되었더라도 사용 (급격한 변동보다는 나음)
-        if cached:
-            self._log("WARN", f"환율 조회 실패로 만료된 캐시 사용 [{market}]: {cached['rate']}")
-            return cached["rate"]
+        if cached_data:
+             self._log("WARN", f"환율 조회 실패로 만료된 DB 캐시 사용 [{market}]: {cached_data['rate']}")
+             return cached_data["rate"]
 
         # 기본 환율 (fallback) - 최후의 수단
         return DEFAULT_FX_RATES.get(market, 1.0)

@@ -15,6 +15,14 @@ DATABASE_URL = f"sqlite:///{DB_PATH}"
 
 Base = declarative_base()
 
+class CacheData(Base):
+    """일반 캐시 데이터 (환율 등)"""
+    __tablename__ = 'cache_data'
+
+    key = Column(String(50), primary_key=True)
+    value = Column(Text)  # JSON 직렬화된 값
+    updated_at = Column(DateTime, default=datetime.now, onupdate=datetime.now)
+
 class MarketData(Base):
     """시세 데이터 (OHLCV)"""
     __tablename__ = 'market_data'
@@ -1155,6 +1163,44 @@ class DatabaseManager:
         except Exception as e:
             session.rollback()
             print(f"Mark trained error: {e}")
+        finally:
+            session.close()
+
+    # ==========================
+    # 캐시 관리 (CacheData)
+    # ==========================
+
+    def get_cache(self, key: str) -> dict:
+        """캐시 조회 (없으면 None)"""
+        session = self.get_session()
+        try:
+            cache = session.query(CacheData).filter_by(key=key).first()
+            if cache:
+                return _json.loads(cache.value)
+            return None
+        except Exception:
+            return None
+        finally:
+            session.close()
+
+    def set_cache(self, key: str, data: dict):
+        """캐시 저장"""
+        session = self.get_session()
+        try:
+            cache = session.query(CacheData).filter_by(key=key).first()
+            if cache:
+                cache.value = _json.dumps(data, ensure_ascii=False)
+                cache.updated_at = datetime.now()
+            else:
+                cache = CacheData(
+                    key=key,
+                    value=_json.dumps(data, ensure_ascii=False)
+                )
+                session.add(cache)
+            session.commit()
+        except Exception as e:
+            session.rollback()
+            print(f"Cache save error: {e}")
         finally:
             session.close()
 
