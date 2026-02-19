@@ -119,6 +119,13 @@
                             <option value="gemini-1.5-pro" {% if settings.ANTIGRAVITY_MODEL.value=='gemini-1.5-pro'
                                 %}selected{% endif %}>gemini-1.5-pro</option>
                         </select>
+                    </div>
+                    <div>
+                        <label class="text-xs text-gray-400 block mb-1">Google OAuth Client ID</label>
+                        <input type="password" id="google-oauth-client-id"
+                            placeholder="{{ settings.GOOGLE_OAUTH_CLIENT_ID.value if settings.GOOGLE_OAUTH_CLIENT_ID.has_value else '미설정' }}"
+                            class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
+                    </div>
                     <div>
                         <label class="text-xs text-gray-400 block mb-1">Google OAuth Client Secret</label>
                         <input type="password" id="google-oauth-secret"
@@ -140,16 +147,17 @@
                         <label class="text-xs text-gray-400 block mb-1">AI 모드</label>
                         <select id="ai-mode"
                             class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
-                            <option value="local" {% if settings.AI_MODE.value=='local' or not settings.AI_MODE.has_value
-                                %}selected{% endif %}>local (로컬 LLM 우선)</option>
-                            <option value="antigravity" {% if settings.AI_MODE.value=='antigravity' %}selected{% endif %}>
+                            <option value="local" {% if settings.AI_MODE.value=='local' or not
+                                settings.AI_MODE.has_value %}selected{% endif %}>local (로컬 LLM 우선)</option>
+                            <option value="antigravity" {% if settings.AI_MODE.value=='antigravity' %}selected{% endif
+                                %}>
                                 antigravity (Google AI 전용)</option>
                         </select>
                     </div>
                     <div>
                         <label class="text-xs text-gray-400 block mb-1">Local LLM URL</label>
                         <input type="text" id="local-llm-url"
-                            placeholder="{{ settings.LOCAL_LLM_URL.value or 'http://127.0.0.1:8002' }}"
+                            placeholder="{{ settings.LOCAL_LLM_URL.value or 'http://host.docker.internal:11434' }}"
                             class="w-full bg-gray-700 border border-gray-600 rounded px-3 py-2 text-white text-sm">
                     </div>
                     <div>
@@ -164,10 +172,11 @@
                 <div class="bg-gray-750 p-3 rounded-lg border border-gray-700">
                     <div class="flex justify-between items-center mb-2">
                         <span class="text-sm text-gray-300 font-medium">🎓 로컬 모델 학습 (Fine-tuning)</span>
-                        <span id="train-status-badge" class="text-xs px-2 py-0.5 rounded-full bg-gray-600 text-gray-400">대기 중</span>
+                        <span id="train-status-badge"
+                            class="text-xs px-2 py-0.5 rounded-full bg-gray-600 text-gray-400">대기 중</span>
                     </div>
                     <p class="text-xs text-gray-500 mb-3">
-                        누적된 매매 기록(TrainingDataset)을 사용하여 로컬 LLM을 미세조정합니다. 
+                        누적된 매매 기록(TrainingDataset)을 사용하여 로컬 LLM을 미세조정합니다.
                         (GPU 필요, 약 10~30분 소요)
                         <br>
                         <span id="dataset-status" class="mt-1 inline-block">데이터 집계 중...</span>
@@ -179,16 +188,18 @@
                         </button>
                         <span id="train-message" class="text-xs text-gray-400 truncate"></span>
                     </div>
-                    
+
                     <!-- 데이터셋 관리 -->
                     <div class="mt-4 pt-3 border-t border-gray-600 flex space-x-3">
-                        <button onclick="exportDataset()" 
+                        <button onclick="exportDataset()"
                             class="bg-gray-600 hover:bg-gray-500 text-white text-xs py-1.5 px-3 rounded flex items-center space-x-1 transition">
                             <span>⬇️</span><span>데이터 내보내기 (JSONL)</span>
                         </button>
-                        <label class="bg-gray-600 hover:bg-gray-500 text-white text-xs py-1.5 px-3 rounded flex items-center space-x-1 cursor-pointer transition">
+                        <label
+                            class="bg-gray-600 hover:bg-gray-500 text-white text-xs py-1.5 px-3 rounded flex items-center space-x-1 cursor-pointer transition">
                             <span>⬆️</span><span>데이터 불러오기</span>
-                            <input type="file" id="dataset-upload" class="hidden" accept=".jsonl" onchange="importDataset(this)">
+                            <input type="file" id="dataset-upload" class="hidden" accept=".jsonl"
+                                onchange="importDataset(this)">
                         </label>
                     </div>
                 </div>
@@ -323,26 +334,29 @@
         statusEl.textContent = '저장 중...';
         statusEl.className = 'text-sm text-yellow-400';
 
+        const v = (id) => { const el = document.getElementById(id); return el ? el.value : null; };
+        const c = (id) => { const el = document.getElementById(id); return el ? (el.checked ? '1' : '0') : '0'; };
+
         const data = {
-            kis_app_key: document.getElementById('kis-app-key').value || null,
-            kis_secret_key: document.getElementById('kis-secret-key').value || null,
-            kis_acct_stock: document.getElementById('kis-acct-stock').value || null,
-            antigravity_api_key: document.getElementById('antigravity-api-key').value || null,
-            antigravity_model: document.getElementById('antigravity-model').value || null,
-            google_oauth_client_id: document.getElementById('google-oauth-client-id').value || null,
-            google_oauth_client_secret: document.getElementById('google-oauth-secret').value || null,
-            discord_webhook_url: document.getElementById('discord-webhook').value || null,
-            noti_trade_alerts: document.getElementById('noti-trade').checked ? '1' : '0',
-            noti_hourly_report: document.getElementById('noti-report').checked ? '1' : '0',
-            ai_mode: document.getElementById('ai-mode').value || null,
-            local_llm_url: document.getElementById('local-llm-url').value || null,
-            local_llm_model: document.getElementById('local-llm-model').value || null,
-            allow_leverage: document.getElementById('allow-leverage').checked ? '1' : '0',
-            enable_auto_scan: document.getElementById('enable-auto-scan').checked ? '1' : '0',
-            enable_auto_buy: document.getElementById('enable-auto-buy').checked ? '1' : '0',
-            enable_auto_sell: document.getElementById('enable-auto-sell').checked ? '1' : '0',
-            enable_offmarket: document.getElementById('enable-offmarket').checked ? '1' : '0',
-            enable_news_collect: document.getElementById('enable-news-collect').checked ? '1' : '0',
+            kis_app_key: v('kis-app-key') || null,
+            kis_secret_key: v('kis-secret-key') || null,
+            kis_acct_stock: v('kis-acct-stock') || null,
+            antigravity_api_key: v('antigravity-api-key') || null,
+            antigravity_model: v('antigravity-model') || null,
+            google_oauth_client_id: v('google-oauth-client-id') || null,
+            google_oauth_client_secret: v('google-oauth-secret') || null,
+            discord_webhook_url: v('discord-webhook') || null,
+            noti_trade_alerts: c('noti-trade'),
+            noti_hourly_report: c('noti-report'),
+            ai_mode: v('ai-mode') || null,
+            local_llm_url: v('local-llm-url') || null,
+            local_llm_model: v('local-llm-model') || null,
+            allow_leverage: c('allow-leverage'),
+            enable_auto_scan: c('enable-auto-scan'),
+            enable_auto_buy: c('enable-auto-buy'),
+            enable_auto_sell: c('enable-auto-sell'),
+            enable_offmarket: c('enable-offmarket'),
+            enable_news_collect: c('enable-news-collect'),
         };
 
         try {
@@ -554,7 +568,7 @@
             const resStatus = await fetch('/api/ai/train/status');
             const dataStatus = await resStatus.json();
             updateTrainingUI(dataStatus);
-            
+
             // 데이터셋 개수 조회
             const resCount = await fetch('/api/ai/dataset/count');
             const dataCount = await resCount.json();
@@ -568,11 +582,11 @@
         const el = document.getElementById('dataset-status');
         const total = data.total;
         const recommended = data.recommended;
-        
+
         let color = 'text-green-400';
         let icon = '✅';
         let msg = '학습 가능';
-        
+
         if (total < recommended) {
             color = 'text-red-400';
             icon = '⚠️';
@@ -582,7 +596,7 @@
             icon = '📊';
             msg = '학습 가능 (데이터 추가 권장)';
         }
-        
+
         el.className = `mt-1 inline-block font-medium ${color}`;
         el.textContent = `${icon} 현재 데이터셋: ${total}건 (${msg})`;
     }
@@ -623,11 +637,11 @@
 
     async function startTraining() {
         if (!confirm('로컬 모델 학습을 시작하시겠습니까?\nGPU 자원이 많이 소모될 수 있습니다.')) return;
-        
+
         try {
             const res = await fetch('/api/ai/train/start', { method: 'POST' });
             const data = await res.json();
-            
+
             if (res.ok) {
                 alert('학습 프로세스가 시작되었습니다.\n완료 시 시스템 로그에 기록됩니다.');
                 loadTrainingStatus();

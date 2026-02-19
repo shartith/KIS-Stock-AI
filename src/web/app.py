@@ -204,39 +204,80 @@ async def get_account_summary():
         # 해외 잔고 실시간 조회 (헤더 일관성 위해 추가)
         overseas = collector.kis.inquire_overseas_balance()
         
-        result = {
-            "cash": balance.get("cash", 0),
-            "order_available": balance.get("cash", 0),  # fallback: dnca_tot_amt
-            "total_assets": balance.get("total_assets", 0),
-            "net_assets": balance.get("net_assets", 0),
-            "profit_loss": balance.get("profit_loss", 0),
-            "domestic_evlu": balance.get("domestic_evlu", 0),
-            "holdings_count": len(balance.get("holdings", [])),
-        }
-
-        # 통합증거금 API에서 정확한 주문가능금액 가져오기
+        # 1. KIS API에서 받은 기본 값 (fallback용)
+        # dnca_tot_amt: 예수금총금액
+        # tot_evlu_amt: 총평가금액 (국내 주식 평가 + 예수금)
+        # nass_amt: 순자산금액
+        # evlu_pfls_smtl_amt: 평가손익합계금액 (국내)
+        # scts_evlu_amt: 유가증권평가금액 (국내 주식만)
+        
+        cash_krw = balance.get("cash", 0)  # 예수금
+        domestic_eval = balance.get("domestic_evlu", 0) # 국내주식 평가액
+        
+        # 통합증거금 API에서 정확한 주문가능금액 및 외화 예수금 확인
+        krw_order_avail = cash_krw
+        usd_order_avail = 0.0
+        
         try:
             margin = collector.kis.inquire_intgr_margin()
             if margin:
-                krw_avail = margin.get("krw_order_available", 0)
-                if krw_avail > 0:
-                    result["order_available"] = krw_avail
-                result["usd_order_available"] = margin.get("usd_order_available", 0)
+                krw_order_avail = margin.get("krw_order_available", 0)
+                usd_order_avail = margin.get("usd_order_available", 0)
         except Exception:
             pass
 
-        # 해외 평가액 (USD 원본)
+        # 해외 주식 평가액 (USD) 합산
+        overseas_eval_usd = 0.0
         try:
-            overseas_usd = round(sum(h.get("eval_amount", 0) for h in (overseas or [])), 2)
-            result["overseas_evlu_usd"] = overseas_usd
+            if overseas:
+                overseas_eval_usd = sum(h.get("eval_amount", 0) for h in overseas)
         except Exception:
             pass
+
+        # 환율 조회 (없으면 기본값 1400)
+        scanner = get_scanner()
+        if scanner:
+            # 동기적으로 실행하기 위해 executor 사용 안함 (이미 async 함수 내부임)
+            # 하지만 scanner._fetch_fx_rate는 동기 함수이므로 바로 호출 가능하나, 
+            # 여기서는 편의상 캐시된 값이나 기본값 사용.
+            # 정확성을 위해 scanner의 캐시나 DB를 조회하는 것이 좋음.
+            # _fetch_fx_rate는 내부적으로 DB 캐시를 쓰므로 호출해도 무방.
+            fx_rate = scanner._fetch_fx_rate("US")
+        else:
+            fx_rate = 1400.0
+
+        if fx_rate <= 0: fx_rate = 1400.0
+
+        # === [공식 적용] 총 자산 계산 ===
+        # Total = (KRW 주문가능 + 국내주식 평가) + ((USD 주문가능 + 해외주식 평가USD) * 환율)
+        # 주의: KIS의 'tot_evlu_amt'는 해외 자산이 포함되지 않거나 지연될 수 있음. 직접 계산이 가장 정확.
+        
+        total_assets_calculated = (
+            krw_order_avail + domestic_eval + 
+            ((usd_order_avail + overseas_eval_usd) * fx_rate)
+        )
+        
+        # 정수형 변환
+        total_assets_final = int(total_assets_calculated)
+
+        result = {
+            "cash": cash_krw,
+            "order_available": krw_order_avail,
+            "usd_order_available": usd_order_avail,
+            "domestic_evlu": domestic_eval,
+            "overseas_evlu_usd": round(overseas_eval_usd, 2),
+            "total_assets": total_assets_final, # 재계산된 총자산
+            "net_assets": total_assets_final,   # 순자산도 동일하게 처리 (대출 없다고 가정)
+            "profit_loss": balance.get("profit_loss", 0), # 국내 손익만 (해외 합산은 복잡하므로 유지)
+            "holdings_count": len(balance.get("holdings", [])) + len(overseas or []),
+            "fx_rate": fx_rate
+        }
 
         _account_cache["data"] = result
         _account_cache["timestamp"] = now
         return result
     except Exception as e:
-        return {"cash": 0, "order_available": 0, "total_assets": 0, "net_assets": 0, "profit_loss": 0, "holdings_count": 0, "error": str(e)}
+        return {"cash": 0, "order_available": 0, "total_assets": 0, "error": str(e)}
 
 # 시장 지수 캐시 (60초)
 _indices_cache = {"data": None, "timestamp": 0}
@@ -1063,17 +1104,13 @@ async def get_portfolio_holdings():
                     h["break_even_price"] = h.get("avg_price", 0) # Default to buy price if no fee data
                     h["total_fees"] = 0
 
-        # 3. 금액 합계 (API 원본 값 사용)
-        domestic_eval = domestic.get("domestic_evlu", 0)  # scts_evlu_amt 원본
-        total_assets = domestic.get("total_assets", 0)    # tot_evlu_amt 원본
-        profit_loss = domestic.get("profit_loss", 0)      # evlu_pfls_smtl_amt 원본
+        # 3. 금액 합계 (공식 적용 재계산)
+        domestic_eval = domestic.get("domestic_evlu", 0)  # 국내 평가액
+        profit_loss = domestic.get("profit_loss", 0)      # 국내 손익
         
-        fx_rate = (await loop.run_in_executor(executor, scanner._fetch_fx_rate, "US")) if scanner else 1450
-        overseas_eval_usd = round(sum(h.get("eval_amount", 0) for h in overseas_holdings), 2)
-
-        # 통합증거금 기준 주문가능금액 (헤더와 동일 소스)
-        order_available = domestic.get("cash", 0)  # fallback: dnca_tot_amt
-        usd_order_available = 0
+        # 통합증거금 기준 주문가능금액
+        order_available = domestic.get("cash", 0)  
+        usd_order_available = 0.0
         try:
             margin = await loop.run_in_executor(executor, collector.kis.inquire_intgr_margin)
             if margin:
@@ -1083,6 +1120,18 @@ async def get_portfolio_holdings():
                 usd_order_available = margin.get("usd_order_available", 0)
         except Exception:
             pass
+            
+        fx_rate = (await loop.run_in_executor(executor, scanner._fetch_fx_rate, "US")) if scanner else 1450.0
+        if fx_rate <= 0: fx_rate = 1450.0
+
+        overseas_eval_usd = round(sum(h.get("eval_amount", 0) for h in overseas_holdings), 2)
+        
+        # [공식 적용] 총자산 재계산
+        total_assets_calculated = (
+            order_available + domestic_eval + 
+            ((usd_order_available + overseas_eval_usd) * fx_rate)
+        )
+        total_assets = int(total_assets_calculated)
 
         return {
             "holdings": all_holdings,
@@ -1090,7 +1139,7 @@ async def get_portfolio_holdings():
             "usd_order_available": usd_order_available,
             "domestic_eval": domestic_eval,
             "overseas_eval_usd": overseas_eval_usd,
-            "total_assets": total_assets,
+            "total_assets": total_assets, # 재계산된 값
             "profit_loss": profit_loss,
             "fx_rate": fx_rate,
             "timestamp": datetime.now().strftime("%H:%M:%S")

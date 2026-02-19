@@ -30,7 +30,7 @@ class LocalLLMClient:
                     return url.rstrip("/")
             except Exception:
                 pass
-        return "http://127.0.0.1:8002"
+        return "http://host.docker.internal:11434"
 
     def _get_model(self) -> str:
         """DB에서 모델명 조회"""

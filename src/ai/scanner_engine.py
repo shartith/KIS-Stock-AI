@@ -2619,9 +2619,10 @@ JSON 형식 응답:
     async def _prefetch_candle_data(self):
         """모든 관심종목의 일봉 데이터를 미리 수집하여 캐싱"""
         all_symbols = []
-        for market, stocks in COUNTRY_STOCKS.items():
-            for sym, name, *_ in stocks:
-                all_symbols.append((sym, name, market))
+        for market_code in MARKET_INFO:
+            watchlist = self._db.get_watchlist(market=market_code, active_only=True)
+            for item in watchlist:
+                all_symbols.append((item["symbol"], item["name"], market_code))
 
         self._candle_cache.clear()
         fetched = 0
@@ -2674,9 +2675,10 @@ JSON 형식 응답:
 
         # 주요 종목의 뉴스 수집 (시장별 상위 5개)
         targets = []
-        for market, stocks in COUNTRY_STOCKS.items():
-            for sym, name, *_ in stocks[:5]:
-                targets.append((sym, name, market))
+        for market_code in MARKET_INFO:
+            watchlist = self._db.get_watchlist(market=market_code, active_only=True)
+            for item in watchlist[:5]:
+                targets.append((item["symbol"], item["name"], market_code))
 
         for sym, name, market in targets:
             try:
